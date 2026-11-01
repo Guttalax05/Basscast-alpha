@@ -1,0 +1,18 @@
+[runner]
+magicEnabled = false
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "dark"
+primaryColor = "#0fa874"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#141418"
+textColor = "#F2F2F7"
+borderColor = "rgba(242, 242, 247, 0.2)"
+greenColor = "#0fa874"
+violetColor = "#9C72DE"
+dataframeBorderColor = "rgba(242, 242, 247, 0.2)"
+dataframeHeaderBackgroundColor = "#141418"
+chartCategoricalColors = ["#0fa874", "#9C72DE", "#2b9fe0"]
