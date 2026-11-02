@@ -1,4 +1,5 @@
-streamlit>=1.66
+streamlit[auth]>=1.66
 requests
 plotly
 tzdata
+google-auth
