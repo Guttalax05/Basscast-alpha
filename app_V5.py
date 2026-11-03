@@ -5054,6 +5054,11 @@ class TacticalAdvisorV2:
 # ==============================================================================
 # MODULO 4 (v4): MOTORE GRAFICO MOBILE — COLONNE ORARIE INTERATTIVE + GRAFICI PLOTLY
 # ==============================================================================
+# Aspetto "lago" (03/11/2026): fondo blu notte (#08121A) al posto del nero e riquadri pieni e morbidi (bianco al 5 %,
+#   bordo appena accennato, angoli di 16 px) al posto dei riquadri neri con bordo grigio; schede del grafico come un
+#   segmented control moderno (fondo pieno, scheda scelta più chiara); numero del picco in Outfit, il carattere del
+#   logo. Nuova create_day_headline: il riassunto del giorno del grafico (picco e ore migliori) per la scena in cima
+#   alla pagina, calcolato dalle stesse funzioni, così scena e grafico dicono sempre la stessa cosa.
 # Stile unico (01/11/2026): una tavolozza sola per tutta l'app (B4_UI, B4_COL_*, B4_RAMP_*), le stesse superfici
 #   (riquadri neri con bordo grigio), bordi (8 px), testi, verde e carattere (Source Sans) della parte alta della
 #   pagina. Grafico orario: schede come il segmented control di Streamlit, scala di verdi per ora ricostruita sul
@@ -5109,6 +5114,7 @@ class TacticalAdvisorV2:
 #
 # FUNZIONI PUBBLICHE (firme retrocompatibili con la v1)
 #   create_mobile_hourly_widget(sim, astro, target_mode="Entrambi")  # NUOVO (v3): HTML per st.iframe, alto B4_W_HEIGHT
+#   create_day_headline(sim, astro, target_mode="Entrambi")          # NUOVO (v5): picco e ore migliori del giorno
 #   create_mobile_plotly_chart(sim, astro, target_mode="Entrambi", focus_hour=None)
 #   create_mobile_radar(best_hour, target_mode="Entrambi")            # accetta anche l'intero `sim`
 #   create_mobile_factors_chart(best_hour, target_mode="Entrambi")    # NUOVO: barre orizzontali
@@ -5159,25 +5165,32 @@ import plotly.graph_objects as go
 # Verde = primaryColor del tema; viola alla stessa luminosità. Scale per ora (ore migliori, ore di luce, buio): stessa
 # tinta in OKLCH, luminosità 0.65 / 0.53 / 0.43. Verificate il 01/11/2026 con validate_palette.js, modalità scura:
 # verde-viola CVD ΔE 17.2 (deutan), visione normale 27.9, contrasto >= 3:1; scale monotone, ΔL >= 0.06, una sola
-# tinta. Contrasti su nero: testo 18.8:1, secondario 6.7:1, assi 4.8:1; verde notte 2.72:1, viola notte 2.48:1. Nella v3 erano #3DDC97 / #B98CFF, più chiari del verde dell'app (L 0.80 contro 0.65).
+# tinta. Nella v3 erano #3DDC97 / #B98CFF, più chiari del verde dell'app (L 0.80 contro 0.65).
+# Fondo blu notte (03/11/2026, al posto del nero): contrasti ricalcolati (WCAG) sulla pagina #08121A e sul riquadro
+# (#141E25, bianco al 5 % sulla pagina): testo 16.9 / 15.2, secondario 6.0 / 5.4, assi 4.4 / 3.9, verde 6.2 / 5.5,
+# viola 5.3 / 4.7, azzurro 6.4 / 5.8, ambra 9.5 / 8.5. Verde notte 2.2:1 sul riquadro (era 2.7 sul nero): sono le
+# colonnine del buio, volutamente spente, con il valore nel fumetto e nella striscia delle ore.
 B4_UI = {
-    "page": '#000000',
-    "surface": '#000000',
-    "card": 'transparent',
-    "border": 'rgba(242, 242, 247, 0.2)',
+    "page": '#08121A',
+    "surface": '#141E25',
+    "card": 'rgba(255, 255, 255, 0.05)',
+    "border": 'rgba(255, 255, 255, 0.08)',
     "line": 'rgba(242, 242, 247, 0.10)',
     "line_base": 'rgba(242, 242, 247, 0.30)',
-    "track": 'rgba(242, 242, 247, 0.08)',
+    "track": 'rgba(255, 255, 255, 0.07)',
     "ink": '#F2F2F7',
     "ink2": '#919194',
     "ink3": '#79797C',
-    "overlay": 'rgba(44, 44, 46, 0.86)',
-    "overlay_solid": '#2C2C2E',
-    "overlay_border": 'rgba(242, 242, 247, 0.16)',
-    "panel": 'rgba(242, 242, 247, 0.03)',
+    "overlay": 'rgba(20, 34, 44, 0.88)',
+    "overlay_solid": '#172630',
+    "overlay_border": 'rgba(255, 255, 255, 0.12)',
+    "panel": 'rgba(255, 255, 255, 0.03)',
     "font": '"Source Sans", "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    "font_css": 'https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap',
-    "radius": 8,
+    # titoli e numeri grandi: Outfit, il carattere della scritta del logo
+    "font_display": '"Outfit", "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    "font_css": ('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700'
+                 '&family=Source+Sans+3:wght@400;600;700&display=swap'),
+    "radius": 16,
 }
 B4_COL_BAI = "#0fa874"       # Attività / Numeri (= primaryColor del tema)
 B4_COL_TROPHY = "#9C72DE"    # Trophy
@@ -5668,29 +5681,12 @@ def _b4_w_water(sim_d, recs):
             "o2": o2, "o2txt": o2_txt, "o2cls": o2_cls}
 
 
-def create_mobile_hourly_widget(sim: dict, astro: dict, target_mode: str = "Entrambi") -> str:
-    """
-    Grafico orario a colonnine come pagina HTML interattiva, da mostrare con
-        st.iframe(html, height=B4_W_HEIGHT)
-    Restituisce "" se il timeline è vuoto o ha più di B4_W_MAX_ROWS righe: in quel caso usare
-    create_mobile_plotly_chart (il Blocco 5 v4 lo fa da solo).
-
-    Contenuto: schede Attività / Trophy / Confronta (si apre su B4_W_START_TAB[target_mode]); numero del picco
-    "su 100" con le ore migliori scritte sotto; colonnine con scala laterale e linee orizzontali (scala da 0 a
-    un valore tondo appena sopra il picco del giorno); corona sull'ora migliore; striscia scorrevole con un
-    riquadro per ogni ora. Colonnine: colore pieno nelle ore migliori, medio nelle ore di luce, scuro col buio.
-    Tocchi: una colonnina o un riquadro della striscia mostra il valore esatto in un fumetto (e centra il
-    riquadro); di nuovo sulla stessa ora, o in qualsiasi altro punto della pagina, il fumetto si chiude.
-    Curve piatte (trophy_flat / bai_flat del Blocco 2, o escursione < B4_FLAT_SPAN) e no_good_window: niente
-    corona e niente ore migliori, il testo lo dice.
-    Sotto, il riquadro dell'ora selezionata, con le frecce ‹ › per scorrere le ore: acqua °C, ossigeno mg/L e i 6
-    fattori (come create_mobile_factors_chart). La selezione è una sola per tutto il grafico. Senza selezione: l'ora
-    migliore della scheda aperta.
-    """
+def _b4_w_build(sim, astro, target_mode):
+    """Dati del grafico orario (dict passato al JavaScript), oppure None se il timeline è vuoto o troppo lungo."""
     ctx = _b4_prepare(sim, astro, target_mode)
     rows = ctx["rows"]
     if not rows or len(rows) > B4_W_MAX_ROWS:
-        return ""
+        return None
     sim_d = sim if isinstance(sim, dict) else {}
     recs = [d["r"] for d in rows]
     hours = [d["h"] for d in rows]
@@ -5727,7 +5723,7 @@ def create_mobile_hourly_widget(sim: dict, astro: dict, target_mode: str = "Entr
     # ora dei fattori senza selezione: il picco della serie; con la curva piatta l'ora col valore più alto
     start_att = att["peak"] if att["peak"] is not None else max(range(len(recs)), key=lambda i: att["vals"][i])
     start_tro = tro["peak"] if tro["peak"] is not None else start_att
-    data = {
+    return {
         "labels": [str(r.get("time_label") or _b4_hhmm(h)) for r, h in zip(recs, hours)],
         "ax3": axis_labels(3),
         "att": att, "tro": tro,
@@ -5740,9 +5736,53 @@ def create_mobile_hourly_widget(sim: dict, astro: dict, target_mode: str = "Entr
                 "weak": [_b4_extremes_text(f) for f in facts]},
         "wat": _b4_w_water(sim_d, recs),
     }
+
+
+def create_day_headline(sim: dict, astro: dict, target_mode: str = "Entrambi"):
+    """
+    Riassunto del giorno come lo scrive il grafico orario: {"att": {...}, "tro": {...}} con, per ogni serie, "num"
+    (picco su 100, testo), "value" (numero), "sub" ("Il momento migliore: ..." o il motivo per cui non c'è), "short",
+    "peak" (indice dell'ora o None) e "hour" ("HH:MM" del picco o None). None senza dati orari.
+    """
+    data = _b4_w_build(sim, astro, target_mode)
+    if data is None:
+        return None
+    out = {}
+    for key in ("att", "tro"):
+        s = data[key]
+        i = s["peak"]
+        out[key] = {"num": s["num"], "value": s["vals"][i] if i is not None else max(s["vals"] or [0.0]),
+                    "sub": s["sub"], "short": s["short"], "peak": i,
+                    "hour": data["labels"][i] if i is not None else None}
+    return out
+
+
+def create_mobile_hourly_widget(sim: dict, astro: dict, target_mode: str = "Entrambi") -> str:
+    """
+    Grafico orario a colonnine come pagina HTML interattiva, da mostrare con
+        st.iframe(html, height=B4_W_HEIGHT)
+    Restituisce "" se il timeline è vuoto o ha più di B4_W_MAX_ROWS righe: in quel caso usare
+    create_mobile_plotly_chart (il Blocco 5 v4 lo fa da solo).
+
+    Contenuto: schede Attività / Trophy / Confronta (si apre su B4_W_START_TAB[target_mode]); numero del picco
+    "su 100" con le ore migliori scritte sotto; colonnine con scala laterale e linee orizzontali (scala da 0 a
+    un valore tondo appena sopra il picco del giorno); corona sull'ora migliore; striscia scorrevole con un
+    riquadro per ogni ora. Colonnine: colore pieno nelle ore migliori, medio nelle ore di luce, scuro col buio.
+    Tocchi: una colonnina o un riquadro della striscia mostra il valore esatto in un fumetto (e centra il
+    riquadro); di nuovo sulla stessa ora, o in qualsiasi altro punto della pagina, il fumetto si chiude.
+    Curve piatte (trophy_flat / bai_flat del Blocco 2, o escursione < B4_FLAT_SPAN) e no_good_window: niente
+    corona e niente ore migliori, il testo lo dice.
+    Sotto, il riquadro dell'ora selezionata, con le frecce ‹ › per scorrere le ore: acqua °C, ossigeno mg/L e i 6
+    fattori (come create_mobile_factors_chart). La selezione è una sola per tutto il grafico. Senza selezione: l'ora
+    migliore della scheda aperta.
+    """
+    data = _b4_w_build(sim, astro, target_mode)
+    if data is None:
+        return ""
     payload = _b4_json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = _B4_W_TEMPLATE
     for token, value in (("__FONT__", B4_W_FONT_CSS.replace("&", "&amp;")), ("__FONTFAMILY__", B4_UI["font"]),
+                         ("__FONTDISPLAY__", B4_UI.get("font_display", B4_UI["font"])),
                          ("__CARD__", B4_W_CARD), ("__BORDER__", B4_W_BORDER), ("__INK__", B4_W_INK),
                          ("__INK2__", B4_W_INK_2), ("__INK3__", B4_W_INK_3), ("__LINEBASE__", B4_UI["line_base"]),
                          ("__LINE__", B4_UI["line"]), ("__OVERLAYBD__", B4_UI["overlay_border"]),
@@ -5770,18 +5810,17 @@ body{font-family:__FONTFAMILY__;color:__INK__;
   -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-text-size-adjust:100%}
 button{font-family:inherit;color:inherit;-webkit-appearance:none;appearance:none}
 #w{display:flex;flex-direction:column;gap:12px;padding:2px 1px 4px}
-.tabs{display:flex}
-.tab{position:relative;flex:1 1 0;min-width:0;height:36px;margin:0 0 0 -1px;border:1px solid __BORDER__;border-radius:0;
-  background:transparent;color:__INK__;font-size:14px;font-weight:400;cursor:pointer}
-.tab:first-child{margin-left:0;border-radius:__RADIUS__px 0 0 __RADIUS__px}
-.tab:last-child{border-radius:0 __RADIUS__px __RADIUS__px 0}
-.tab.on{z-index:1;border-color:__ACCENT__;color:__ACCENT__;background:__ACCENTBG__}
+.tabs{display:flex;gap:2px;height:36px;padding:3px;border:1px solid __BORDER__;border-radius:12px;background:__CARD__}
+.tab{position:relative;flex:1 1 0;min-width:0;height:100%;margin:0;border:0;border-radius:9px;background:transparent;
+  color:__INK2__;font-size:14px;font-weight:600;cursor:pointer;transition:background-color .2s,color .2s}
+.tab.on{background:rgba(255,255,255,.14);color:__INK__;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .tab:focus-visible,.bar:focus-visible,.chip:focus-visible{outline:2px solid __INK__;outline-offset:2px}
 #view{height:__VIEWH__px}
 .card{background:__CARD__;border:1px solid __BORDER__;border-radius:__RADIUS__px}
 .main{height:100%;padding:16px;display:flex;flex-direction:column}
 .hero{display:flex;align-items:baseline;gap:4px}
-.num{font-size:40px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.num{font-family:__FONTDISPLAY__;font-size:42px;font-weight:600;line-height:1;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
 .of{font-size:16px;font-weight:400;color:__INK3__}
 .sub{margin-top:6px;font-size:14px;line-height:18px;color:__INK2__;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chart{display:flex;gap:8px;margin-top:10px}
@@ -5838,8 +5877,8 @@ button{font-family:inherit;color:inherit;-webkit-appearance:none;appearance:none
 .fhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .ftitle{font-size:16px;font-weight:600}
 .fnav{display:flex;align-items:center;gap:4px}
-.fstep{width:40px;height:40px;margin:0;padding:0;border:1px solid __BORDER__;border-radius:__RADIUS__px;
-  background:transparent;color:__INK__;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.fstep{width:40px;height:40px;margin:0;padding:0;border:0;border-radius:12px;
+  background:__TRACK__;color:__INK__;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .fstep:disabled{opacity:.3;cursor:default}
 .fstep:focus-visible{outline:2px solid __INK__;outline-offset:2px}
 .fhour{min-width:56px;text-align:center;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -6737,6 +6776,101 @@ def check_block4_contract(sim):
 #     Copia di sicurezza in JSON da scaricare e ricaricare (unione per uscita). Limiti: un telefono e un browser; Safari
 #     su iPhone può cancellare i dati di un sito non aperto da una settimana.
 #
+# DIARIO, PRIMA REVISIONE (02/11/2026; dalla simulazione con un diario finto, cartella Simulazione)
+#   * Inserimento dati rifatto con un componente (_b5_scheda): i campi numerici di Streamlit al telefono non davano la
+#     virgola, avevano − e + piccoli e a ogni campo il cassetto si ridisegnava (tastiera chiusa). Ora ora e giorno col
+#     selettore del telefono, peso e lunghezza col tastierino numerico con la virgola, esca a pulsanti (ultime usate e
+#     le più comuni, B5_LURES), peso suggerito dalla lunghezza (relazione lunghezza-peso del persico trota) e avviso se
+#     peso e lunghezza non tornano; a Python arriva un solo valore a "Fatto" o "Salva".
+#   * Uscita in corso: dopo "+ Cattura" si apre sotto la scheda di quella cattura (facoltativa), gli orari delle catture
+#     si toccano per riaprirla, una vibrazione breve a ogni cattura (Android); via "Togli l'ultima cattura" (c'è
+#     Elimina nella scheda). L'Attività di adesso ha la parola accanto (B5_INDEX_WORDS).
+#   * Modifica e Già fatta: catture in elenco, una scheda aperta alla volta; nell'uscita nuova il lago si sceglie tra
+#     quelli del diario (prima andava cambiato in alto).
+#   * Pagina: "Uscite" e "I tuoi numeri" (record, totali, catture per mese, esche e ore che hanno preso di più, "La
+#     previsione ti aiuta?"), filtri per anno e lago, mesi con i loro totali, B5_DIARY_PAGE uscite per volta. Con 54
+#     uscite la pagina era lunga 6.600 px. Esche contate con un nome solo (_b5_lure_name). Record nei riquadri in alto.
+#   * Tolti: la frase "Catture con Attività media…" del dettaglio, la scritta ripetuta in fondo alla pagina.
+#
+# DIARIO, SECONDA REVISIONE (02/11/2026)
+#   * Scheda della cattura: "+ Aggiungi una nota" (il campo compare al tocco). Nel dettaglio ogni cattura ha le
+#     condizioni di quell'ora (acqua, pressione, vento, attività in parole).
+#   * I tuoi numeri: laghi dove prendi di più (catture all'ora), quando prendi di più (ore e temperatura dell'acqua).
+#     La coppa del record sull'uscita del record, nell'elenco.
+#   * Provati e tolti lo stesso giorno: zona del lago (testo libero: "drop-off", "dropoff", "punta sud" non si
+#     contano insieme e non passerebbero agli spot sulla mappa, più avanti), profondità (quasi sempre a occhio),
+#     rilasciato (nel bass si rilascia quasi sempre: non distingue niente).
+#   * "Condividi l'uscita" nel dettaglio: immagine 1080 x 1350 disegnata nel browser (logo, giorno, lago che si può
+#     nascondere, catture, il più grosso, striscia delle ore, condizioni), condivisa dal telefono o scaricata.
+#   * Uscita in corso: il numero delle catture fa un piccolo salto a ogni cattura (niente con "riduci movimento").
+#     La classe alterna b5d-pop0 / b5d-pop1: con una sola classe React riusava l'elemento e il salto partiva solo
+#     alla prima cattura.
+#   * In fondo, nel pannello della copia: "Scarica per Excel (.csv)" (una riga per cattura, punto e virgola e virgola
+#     decimale) e "Ripristina da una copia" con un pulsante nostro (st.file_uploader era in inglese). Lontano dai
+#     pulsanti che si usano in acqua.
+#   * Cassetto Località: "I tuoi laghi", i laghi del diario con un tocco (anche da Pesca e Meteo, se il Diario è stato
+#     aperto nella sessione).
+#
+# DIARIO, TERZA REVISIONE (03/11/2026; primo impatto e uso al lago)
+#   * Copertina: titolo, "Stagione 2026" e la stagione in numeri grandi (bass, uscite, record in ambra) su fondo con la
+#     sfumatura verde dell'immagine da condividere; i cappotti stanno nei numeri. Prima: titolo e quattro riquadri
+#     grigi uguali a tutto il resto della pagina.
+#   * Diario vuoto: un'uscita d'esempio disegnata come quelle vere (striscia, catture, il più grosso) e tre passi brevi,
+#     al posto di tre paragrafi. L'invito ad accedere compare solo dopo la prima uscita, breve e in fondo alla pagina.
+#   * Uscita in corso: "Inizia adesso" la fa partire subito e la previsione si calcola in fondo allo stesso giro (con
+#     poca rete al lago prima restava la rotellina); al posto del picco del giorno, spesso già passato, "meglio verso
+#     le 18:00" se più avanti l'Attività cresce di almeno 5.
+#   * Scheda della cattura: sotto i 280 px di larghezza l'ora va su una riga sua (a 320 px si leggeva "23:").
+#   * Uscite / I tuoi numeri e il pulsante dei filtri sulla stessa riga (anno e lago in una finestrella); prima erano
+#     tre righe di pulsanti prima dell'elenco.
+#   * Parole: "a pesca dalle" e "ore di pesca" al posto di "in acqua" (faceva pensare al belly boat), "Uscita passata"
+#     al posto di "Già fatta", "Dove peschi" al posto di "Nuova uscita a"; titoli dei riquadri tutti uguali (.b5d-ttl).
+#
+# DIARIO, QUARTA REVISIONE (03/11/2026)
+#   * Copertina senza bordo verde: il bordo verde è dell'uscita in corso, e con due riquadri verdi uno sopra l'altro la
+#     copertina sembrava anch'essa "attiva". Resta la sfumatura, che la lega all'immagine da condividere.
+#   * "La previsione ti aiuta?" anche in copertina, in una riga, quando ci sono almeno B5_DIARY_MIN_TRIPS uscite e
+#     B5_DIARY_FEW_CATCHES catture (prima sarebbe rumore); il riquadro completo resta in I tuoi numeri.
+#   * I tuoi numeri: "Condividi la tua stagione" (immagine 1080 x 1350 con totali, record, catture per mese, lago ed
+#     esca migliori; "Mostra i laghi" li nasconde), record per lago in "Dove prendi di più", Traguardi (pochi: bass,
+#     il più grosso, uscite, laghi; un avviso quando se ne raggiunge uno nuovo), mappa "I tuoi spot".
+#   * Spot sulla mappa (al posto della zona scritta a mano): nella scheda della cattura "Qui" (GPS del telefono, solo
+#     in https) o "Mappa" (punto scelto su OpenStreetMap, anche per le uscite passate); nel dettaglio la mappa con le
+#     catture. Le coordinate restano nel diario e nell'Excel, mai nelle immagini condivise.
+#
+# ASPETTO "LAGO" (03/11/2026)
+#   * Fondo blu notte al posto del nero, riquadri pieni con angoli morbidi al posto dei bordi grigi, controlli come
+#     quelli dei telefoni, titoli e numeri grandi in Outfit (il carattere del logo): B5_THEME_CSS, tema e B4_UI.
+#   * In cima a Pesca, Meteo e Diario la scena del lago a tutta larghezza (_b5_scene_svg), sotto la barra con il
+#     logo: cielo dell'ora del luogo con sole o luna dove sono davvero, nuvole e meteo, colline, acqua e canneti.
+#     Nella Pesca sull'acqua il picco del giorno (anello) con le ore migliori, gli stessi del grafico
+#     (create_day_headline del Blocco 4), e cerchi che crescono con l'attività prevista.
+#   * Barra in alto che segue lo scorrimento in modo continuo (prima scattava a 64 px tra due elementi diversi);
+#     pillola con l'evidenziatore che scivola; swipe sul contenuto per passare alla sezione accanto.
+#
+# NIENTE MARE (03/11/2026)
+#   * Il black bass vive in acqua dolce: un punto in mare non diventa la località (coordinate scritte, mappa, GPS) né
+#     lo spot di una cattura, e un'uscita non parte in mare. Controllo _b5_at_sea sulle tessere vettoriali di
+#     OpenStreetMap (B5_SEA_SOURCES), dove il mare è separato da laghi e lagune: Lago di Porta, Massaciuccoli e gli
+#     altri laghi vicino alla costa restano validi. Entro B5_SEA_SHORE_M dalla riva il punto vale ancora.
+#   * A terra non si controlla se c'è un lago segnato sulle mappe: laghetti, cave e invasi privati spesso mancano, e
+#     per la previsione conta il meteo della zona. Fonti giù: il punto si accetta.
+#   * Ultima difesa nel motore: con una località in mare la Pesca non calcola e chiede di cambiare località.
+#
+# RICERCA DI LAGHI E LUOGHI (03/11/2026)
+#   * Senza "lago" davanti si cerca anche "lago <nome>" ("corbra" -> Lago di Corbara, "trasimeno" -> Lago Trasimeno e
+#     non la fermata dell'autobus); i posti vicini alla località in uso vengono prima; ordine per somiglianza del nome.
+#   * Cassetto Località e "+ Altro lago" nella scheda di Uscita passata / Modifica: ricerca con Photon (OpenStreetMap,
+#     B5_PHOTON_URL), che trova anche i laghi e tollera gli errori ("bozzi saudino" -> Bozi di Saudino, "lago di
+#     bolsna" -> Lago di Bolsena); se Photon non risponde, l'archivio di Open-Meteo come prima. Prima la scheda
+#     dell'uscita proponeva solo i laghi già nel diario e un lago nuovo andava impostato in cima alla pagina.
+#   * Nella Modifica il lago si può cambiare: con un lago diverso la previsione si ricalcola con il meteo del giorno.
+#
+# UNITÀ DI MISURA NELLA STRATEGIA (03/11/2026)
+#   * Interruttore "g · kg | oz · lb" sopra i riquadri (B5_UNITS, chiave b5_units, resta tra le sezioni). Con "g · kg",
+#     la scelta di partenza, i testi del Blocco 3 passano da once a grammi, da libbre a chili e da piedi a metri
+#     (_b5_units); il Blocco 3 non cambia.
+#
 # ACCOUNT E DATABASE DEL DIARIO (02/11/2026)
 #   * Facoltativi: si accendono solo con i secrets [auth] (accesso con Google, st.login) e [firestore] (chiave del
 #     service account di un progetto Firebase con Cloud Firestore) e con i pacchetti streamlit[auth] e google-auth.
@@ -6834,6 +6968,8 @@ def check_block4_contract(sim):
 #     Eccezioni: le icone dei riquadri sotto il nome (data, alba e tramonto, luna), SVG disegnati qui (_B5_ICONS), e
 #     👑 nella tabella oraria (st.dataframe non disegna le icone).
 import datetime as _b5_dt
+import difflib as _b5_difflib
+import gzip as _b5_gzip
 import hashlib as _b5_hashlib
 import html as _b5_html
 import json as _b5_json
@@ -6842,6 +6978,7 @@ import os as _b5_os
 import re as _b5_re
 import tempfile as _b5_tempfile
 import time as _b5_time
+import unicodedata as _b5_unicodedata
 
 import requests
 import streamlit as st
@@ -6875,6 +7012,11 @@ B5_GOAL_NOTES = {
     "Numeri": "Più catture possibili: esche di ricerca e molti lanci, spostandosi finché si trova pesce attivo.",
     "Trophy": "Pesci oltre 2 kg: esche grandi, meno lanci e più tempo sui punti migliori. Di solito meno tocchi.",
 }
+# Unità nella Strategia (canne, fili, esche): "metriche" come in Italia e nel resto d'Europa (esche in grammi, tenuta del
+# filo in chili, canne in metri) oppure "imperiali" come nei testi del Blocco 3 e nei cataloghi americani (once,
+# libbre, piedi e pollici). Si sceglie sopra i riquadri della Strategia; conversioni in _b5_units.
+B5_UNITS = ["metriche", "imperiali"]
+B5_UNITS_LABELS = {"metriche": "g · kg", "imperiali": "oz · lb"}
 B5_WATER_LEVELS = ["Stabile", "In Crescita", "In Calo"]
 B5_WATER_LABELS = {"Stabile": "Stabile", "In Crescita": "In crescita ↑", "In Calo": "In calo ↓"}
 B5_FORAGE_BASES = [
@@ -6915,7 +7057,7 @@ B5_SPOT_HELP = (
 )
 
 B5_DEFAULTS = {
-    "b5_goal": "Numeri", "b5_when": "Oggi", "b5_water": "Stabile", "b5_forage": "Misto",
+    "b5_goal": "Numeri", "b5_units": "metriche", "b5_when": "Oggi", "b5_water": "Stabile", "b5_forage": "Misto",
     "b5_press": "Media", "b5_turb": "Non specificato", "b5_probe_on": False, "b5_probe_c": 15.0,
 }
 
@@ -6937,11 +7079,8 @@ B5_DO_STRESS_MG_L = 4.0      # sotto: stress
 B5_TAB_LABELS = (":material/monitoring: Grafici", ":material/target: Strategia", ":material/schedule: Ore")
 # Sezioni nella pillola in basso: (chiave, scritta). Le icone sono in _B5_NAV_ICONS, con la stessa chiave.
 B5_SECTIONS = (("pesca", "Pesca"), ("meteo", "Meteo"), ("diario", "Diario"))
-# Fascia in alto scorrendo la pagina: "compatta" (diventa una riga sottile con luogo e giorno e la pillola perde le
-# scritte; scelta il 02/11/2026) oppure "nascondi" (sparisce scendendo, torna risalendo; l'altra prova).
-B5_TOPBAR_MODE = "compatta"
 # Chiavi dei widget della sezione Pesca da conservare quando si passa al Meteo (vedi note in testa).
-_B5_KEEP_KEYS = ("b5_when", "b5_goal")
+_B5_KEEP_KEYS = ("b5_when", "b5_goal", "b5_units")
 # Meteo: giorni di previsione, durata della cache (s) e raffiche da cui scatta l'avviso. 40 km/h: inizio del grado 6
 # della scala Beaufort ("vento forte", 39-49 km/h), già impegnativo per barchini, belly boat e kayak.
 B5_METEO_DAYS = 7
@@ -6956,6 +7095,15 @@ B5_DIARY_STORE_KEY = "bassometro.diario.v1"
 B5_DIARY_MIN_TRIPS = 5
 B5_DIARY_FEW_CATCHES = 20
 B5_DIARY_MAX_DAYS = 365
+# Esche proposte a pulsanti nella scheda della cattura: prima le ultime usate (B5_LURE_CHIPS), le altre con "Altre…".
+# Un solo nome per esca: "texas", "T-rig" e "Texas rig" contano come la stessa (_b5_lure_name).
+B5_LURES = ("Texas rig", "Spinnerbait", "Jig", "Drop shot", "Crankbait", "Chatterbait", "Swimbait", "Jerkbait",
+            "Popper", "Walking bait", "Frog", "Wacky rig", "Ned rig", "Carolina rig", "Free rig", "Lipless")
+B5_LURE_CHIPS = 6
+B5_DIARY_PAGE = 15          # uscite mostrate per volta nell'elenco ("Mostra altre")
+# L'indice 0-100 in parole (Attività adesso nell'uscita in corso): sotto 15 e sotto 30 come il Blocco 2
+# (sim_no_good_window_below, sim_poor_window_below).
+B5_INDEX_WORDS = ((15, "molto bassa"), (30, "bassa"), (50, "media"), (70, "buona"), (101, "ottima"))
 # Account del Diario (facoltativi, vedi SEZIONE DIARIO): API REST di Cloud Firestore; secondi dopo cui il diario
 # dell'account si rilegge dal database entrando nel Diario; chiave del browser con l'ora di Accedi / Esci (per riaprire
 # il Diario al ritorno da Google).
@@ -6973,6 +7121,29 @@ B5_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # Nomi dei punti scelti con il GPS o sulla mappa: Nominatim di OpenStreetMap, gratuito e senza chiave. Le sue regole
 # d'uso chiedono un'app riconoscibile nelle richieste e al massimo una richiesta al secondo.
 B5_NOMINATIM_URL = "https://nominatim.openstreetmap.org/"
+# Ricerca per nome (cassetto Località e "+ Altro lago" nella scheda dell'uscita): Photon di komoot, gratuito e senza
+# chiave, sugli stessi dati di OpenStreetMap. Trova anche laghi, bacini e fiumi (l'archivio di Open-Meteo solo i
+# centri abitati) e tollera gli errori di battitura: "bozzi saudino" trova "Bozi di Saudino" (prova del 03/11/2026).
+B5_PHOTON_URL = "https://photon.komoot.io/api/"
+
+# Mare (03/11/2026): il black bass vive in acqua dolce, quindi un punto in mare non si accetta come località né come
+# spot di una cattura (_b5_at_sea). Tessere vettoriali di OpenStreetMap, gratuite e senza chiave; la seconda fonte
+# se la prima non risponde. Prova su 16 punti, stessi risultati con le due fonti: Lago di Porta, Massaciuccoli, Bozi
+# di Saudino, Burano, Lesina, Fogliano e il paese di Marina di Massa non sono mare; il mare davanti a Massa, il Golfo
+# della Spezia e il Tirreno aperto sì. Le lagune (Orbetello, Venezia) contano come acque interne e si accettano.
+B5_SEA_SOURCES = (
+    # (TileJSON o indirizzo delle tessere, strato, campo, valore che vuol dire mare)
+    ("https://tiles.openfreemap.org/planet", "water", "class", "ocean"),              # schema OpenMapTiles
+    ("https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}", "ocean", None, None),      # schema Shortbread
+)
+B5_SEA_ZOOM = 14                    # tessera di circa 1,8 km di lato in Italia: riva precisa a pochi metri
+B5_SEA_SHORE_M = 30                 # in mare ma entro 30 m dalla riva vale ancora (GPS che sbanda, foci dei fiumi)
+B5_SEA_TIMEOUT_S = 5
+B5_SEA_RETRY_S = 300                # fonti giù: per 5 minuti niente controllo, così non si aspetta a ogni tocco
+B5_SEA_MSG = "Questo punto è in mare: lì il black bass non c'è. Scegli un lago, un fiume o un punto a terra."
+B5_SEA_GPS_MSG = "Il GPS ti mette in mare: lì il black bass non c'è. Cerca il lago per nome o sceglilo sulla mappa."
+B5_SEA_COORDS_MSG = ("Queste coordinate cadono in mare: lì il black bass non c'è. Controlla i numeri o scegli il "
+                     "punto sulla mappa.")
 B5_HTTP_HEADERS = {"User-Agent": "Bassometro/0.1 (+https://github.com/Guttalax05/Basscast-alpha)"}
 # Mappa del cassetto Località: Leaflet 1.9.4 da unpkg (con l'impronta SHA-256 dei file pubblicata da Leaflet: un
 # file alterato non viene eseguito) e le mappe di OpenStreetMap, gratuite con l'attribuzione e per un uso leggero.
@@ -7088,8 +7259,7 @@ B5_CSS = (
     ".b5d{margin-bottom:1rem}"
     ".b5d-title{padding:12px 0 6px;font-size:28px;font-weight:600;line-height:1.2}"
     ".b5d-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}"
-    ".st-key-b5_dundo button{min-height:32px}"
-    ".st-key-b5_dundo button p{color:rgba(242,242,247,.6);font-size:14px}"
+    ".st-key-b5_dnext p{color:rgba(242,242,247,.6)}"
     ".st-key-b5_dloc button{min-height:40px;justify-content:flex-start}"
     ".st-key-b5_dlive{border-color:rgba(15,168,116,.6) !important}"
     ".b5d-live{color:#0fa874;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}"
@@ -7098,7 +7268,6 @@ B5_CSS = (
     "font-variant-numeric:tabular-nums}"
     ".b5d-big small{margin-left:6px;font-size:18px;letter-spacing:0}"
     ".b5d-zero{color:rgba(242,242,247,.6)}"
-    ".b5d-times{display:flex;flex-wrap:wrap;gap:3px 5px;margin:8px 0 4px}"
     ".b5d-sub{color:rgba(242,242,247,.6);font-size:14px;line-height:1.4}"
     ".b5d-sub b{color:#F2F2F7;font-weight:600}"
     ".st-key-b5_dcatch button{min-height:56px}"
@@ -7111,8 +7280,41 @@ B5_CSS = (
     ".b5d-bar{display:block;height:6px;margin:2px 0;border-radius:3px;background:rgba(242,242,247,.08);overflow:hidden}"
     ".b5d-bar i{display:block;height:100%;border-radius:3px}"
     ".b5d-verdict{margin-bottom:6px;font-weight:600;line-height:1.4}"
-    ".b5d-month{margin:.5rem 0 -.25rem;color:rgba(242,242,247,.6);font-size:13px;font-weight:600;letter-spacing:.06em;"
-    "text-transform:uppercase}"
+    ".b5d-month{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:.5rem 0 -.25rem;"
+    "color:rgba(242,242,247,.6);font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}"
+    ".b5d-month span{font-weight:400;letter-spacing:.02em;text-transform:none}"
+    # dettaglio: catture una per riga; I tuoi numeri: record, colonne per mese, esche con barra
+    ".b5d-catches{display:flex;flex-direction:column;gap:6px}"
+    ".b5d-catch{display:flex;gap:10px;align-items:baseline;line-height:1.4}"
+    ".b5d-catch b{font-variant-numeric:tabular-nums}"
+    ".b5d-catch span{color:rgba(242,242,247,.75)}"
+    ".b5d-catch>div{display:flex;flex-direction:column;min-width:0}"
+    ".b5d-catch small{color:rgba(242,242,247,.5);font-size:13px;line-height:1.35}"
+    ".b5d-cup{display:inline-flex;vertical-align:-2px;margin-left:2px;color:#E3B04B}"
+    # il numero delle catture fa un piccolo salto quando se ne segna una
+    # (due animazioni uguali con nomi diversi: la classe cambia a ogni cattura e il salto riparte)
+    "@keyframes b5pop0{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}"
+    "@keyframes b5pop1{0%{transform:scale(1)}35%{transform:scale(1.22)}100%{transform:scale(1)}}"
+    ".b5d-pop0,.b5d-pop1{display:inline-block;transform-origin:left bottom}"
+    ".b5d-pop0{animation:b5pop0 .5s ease-out}"
+    ".b5d-pop1{animation:b5pop1 .5s ease-out}"
+    "@media (prefers-reduced-motion:reduce){.b5d-pop0,.b5d-pop1{animation:none}}"
+    ".b5n-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}"
+    ".b5n-two>div{display:flex;flex-direction:column;gap:2px}"
+    ".b5n-lake span:first-child{display:flex;flex-direction:column;line-height:1.25}"
+    ".b5n-lake small{color:rgba(242,242,247,.5);font-size:12.5px}"
+    ".b5d-catch i{color:rgba(242,242,247,.45)}"
+    ".b5n{display:flex;flex-direction:column;gap:14px}"
+    ".b5n .b5m-stats{padding-top:14px}"
+    ".b5n-rec{display:flex;align-items:center;gap:12px;color:#E3B04B}"
+    ".b5n-rec>div{display:flex;flex-direction:column;gap:1px;min-width:0;color:#F2F2F7}"
+    ".b5n-big{font-size:30px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}"
+    ".b5n-sec{display:flex;flex-direction:column;gap:6px;padding-top:12px;border-top:1px solid rgba(242,242,247,.1)}"
+    ".b5n-bars{display:block;max-width:100%;height:auto}"
+    ".b5n-row{display:grid;grid-template-columns:minmax(0,9rem) 1fr 2rem;align-items:center;gap:10px;font-size:15px}"
+    ".b5n-row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+    ".b5n-row b{text-align:right;font-variant-numeric:tabular-nums}"
+    ".b5n-mid{font-size:20px;font-weight:600}"
     '[class*="st-key-b5_dcard_"]{position:relative;transition:border-color .15s}'
     '[class*="st-key-b5_dcard_"]:has(button:focus-visible){border-color:#0fa874}'
     '@media (hover:hover){[class*="st-key-b5_dcard_"]:has(button:hover){border-color:#0fa874}}'
@@ -7136,6 +7338,45 @@ B5_CSS = (
     ".b5d-key.b5d-off{margin-left:6px;background:rgba(242,242,247,.16)}"
     ".b5d-dot{display:inline-block;width:8px;height:8px;margin-left:6px;border-radius:50%;background:#F2F2F7}"
     ".b5d-stats{margin-bottom:1rem}"
+    # copertina del Diario: la sfumatura verde dell'immagine da condividere, stagione in numeri grandi, record in ambra
+    # niente bordo: il bordo verde è dell'uscita in corso; con due riquadri verdi la copertina sembrava "attiva"
+    ".b5h{display:flex;flex-direction:column;gap:6px}"
+    ".b5h-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}"
+    ".b5h-top .b5d-title{padding:8px 0 0}"
+    ".b5h-season{color:#0fa874;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;"
+    "white-space:nowrap}"
+    ".b5h-stats{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px 26px;margin:4px 0 6px}"
+    ".b5h-stats>div{display:flex;flex-direction:column}"
+    ".b5h-stats b{display:flex;align-items:center;gap:4px;font-size:34px;font-weight:700;line-height:1.05;"
+    "letter-spacing:-.01em;font-variant-numeric:tabular-nums}"
+    ".b5h-stats span{color:rgba(242,242,247,.65);font-size:13px}"
+    ".b5h-rec b{color:#E3B04B}"
+    ".b5h-sub{margin:2px 0 6px;color:rgba(242,242,247,.72);font-size:15px;line-height:1.4}"
+    # la previsione ti aiuta? in copertina (con abbastanza uscite e catture)
+    ".b5h-proof{display:flex;align-items:flex-start;gap:8px;margin:2px 0 4px;padding:8px 10px;border-radius:8px;"
+    "background:rgba(242,242,247,.06);font-size:14.5px;line-height:1.35}"
+    ".b5h-proof svg{flex:none;margin-top:1px;color:rgba(242,242,247,.6)}"
+    ".b5h-ok svg{color:#0fa874}"
+    ".b5h-ko svg{color:#E3B04B}"
+    ".b5h-proof small{color:rgba(242,242,247,.6);font-size:13px}"
+    # traguardi in I tuoi numeri: raggiunti in ambra (come il record), i prossimi con la barra
+    ".b5n-mss{display:flex;flex-wrap:wrap;gap:6px}"
+    ".b5n-ms{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid rgba(227,176,75,.4);"
+    "border-radius:999px;color:#E3B04B;font-size:13.5px}"
+    ".b5n-next{display:grid;grid-template-columns:minmax(0,9rem) 1fr auto;align-items:center;gap:10px;font-size:14.5px}"
+    ".b5n-next b{font-weight:600;font-variant-numeric:tabular-nums}"
+    # titoli dei riquadri del Diario (sotto le etichette restano in maiuscoletto, come nel Meteo)
+    ".b5d-ttl{margin-bottom:4px;color:#F2F2F7;font-size:16px;font-weight:600;line-height:1.3}"
+    ".b5d-wait{color:#0fa874}"
+    # diario vuoto: un'uscita d'esempio, bordo tratteggiato e l'etichetta "Esempio"
+    ".b5d-sample{position:relative;margin:12px 0;padding:14px 14px 10px;border:1px dashed rgba(242,242,247,.28);"
+    "border-radius:10px}"
+    ".b5d-tag{position:absolute;top:-9px;left:12px;padding:0 6px;background:#000;color:rgba(242,242,247,.6);"
+    "font-size:12px;letter-spacing:.06em;text-transform:uppercase}"
+    ".b5d-sample .b5d-legend{margin:8px 0 0}"
+    ".b5d-steps{margin:0 0 8px;padding-left:1.25em}"
+    ".b5d-steps li{margin:6px 0;line-height:1.4}"
+    ".st-key-b5_dfilters_on p{color:rgba(242,242,247,.65)}"
 )
 
 _B5_DOW = ("lun", "mar", "mer", "gio", "ven", "sab", "dom")
@@ -7523,37 +7764,140 @@ def _b5_guess_tz(lat, lon):
 
 # L'archivio del geocoding contiene località abitate, non laghi: "Lago di Garda" non dà risultati, "Garda" sì.
 _B5_RE_WATER_PREFIX = _b5_re.compile(
-    r"^(?:lago|laghetto|laghi|bacino|invaso|diga|cava|fiume|canale|lake)\s+"
+    r"^(?:lago|laghetto|laghi|bacino|invaso|diga|cava|fiume|torrente|canale|stagno|palude|lake)\s+"
     r"(?:(?:di|del|della|dello|dei|degli|delle)\s+|d['’]\s*)?", _b5_re.I)
 
 
-def _b5_search_location(query):
-    """-> (elenco località, messaggio per l'utente oppure ''). Con risultati il messaggio è solo informativo."""
+_B5_PHOTON_WATER = {"water", "lake", "reservoir", "pond", "basin", "lagoon", "oxbow", "river", "canal"}
+_B5_PHOTON_PLACES = {"city", "town", "village", "hamlet", "suburb", "locality", "neighbourhood", "isolated_dwelling"}
+# Parole d'acqua: una ricerca che non comincia così si fa anche come "lago <nome>". Photon con "trasimeno" da solo
+# trova fermate e bar, con "lago trasimeno" il lago; "corbra" niente, "lago corbra" il Lago di Corbara (03/11/2026).
+_B5_WATER_WORDS = "lago|laghetto|laghi|bacino|invaso|diga|cava|fiume|torrente|canale|stagno|palude|bozi|bozzi|lake"
+_B5_RE_WATER_WORD = _b5_re.compile(r"^(?:%s)\b" % _B5_WATER_WORDS, _b5_re.I)
+# Parole che non contano nel confronto dei nomi ("Lago di Vico" e "vico" sono lo stesso nome)
+_B5_RE_NAME_FILLER = _b5_re.compile(
+    r"\b(?:%s|di|del|della|dello|dei|degli|delle|d|sul|sulla|il|lo|la|i|gli|le)\b" % _B5_WATER_WORDS)
+
+
+def _b5_name_core(text):
+    """Nome da confrontare: minuscolo, senza accenti né punteggiatura e senza parole come "lago di"."""
+    s = _b5_unicodedata.normalize("NFKD", str(text or "").lower())
+    s = _b5_re.sub(r"[^a-z0-9]+", " ", "".join(c for c in s if not _b5_unicodedata.combining(c)))
+    return " ".join(_B5_RE_NAME_FILLER.sub(" ", s).split()) or " ".join(s.split())
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _b5_photon_raw(query: str, near) -> list:
+    """Una ricerca su Photon -> risultati grezzi; near = (lat, lon) fa salire i posti vicini."""
+    params = {"q": query, "limit": 15}
+    if near:
+        params.update(lat=near[0], lon=near[1])
+    resp = requests.get(B5_PHOTON_URL, params=params, headers=B5_HTTP_HEADERS, timeout=10)
+    resp.raise_for_status()
+    return (resp.json() or {}).get("features") or []
+
+
+def _b5_photon(query: str, near=None) -> list:
+    """
+    Nome (anche scritto male) -> laghi e località di OpenStreetMap con Photon, al massimo 8; senza stazioni,
+    fermate, parchi, fossi e i doppioni dello stesso posto (un lago fatto di più specchi d'acqua compare una volta).
+      * Senza parola d'acqua in testa si cerca anche "lago <nome>" (vedi _B5_WATER_WORDS); con la parola anche il
+        nome da solo: in OpenStreetMap il fiume è "Tevere", e "fiume tevere" trova solo piste ciclabili e vie.
+      * near (lat, lon della località in uso): i posti vicini salgono; "lago di vco" vicino a Bolsena trova Vico,
+        senza trova Como e Garda.
+      * Ordine: somiglianza del nome con quello scritto (_b5_name_core), poi l'acqua prima dei paesi, poi Photon;
+        fuori i paesi con un nome lontano quando c'è già un nome quasi giusto.
+    Il fuso è stimato (Italia e dintorni); il vero si chiede quando si sceglie. Errore solo se nessuna ricerca va.
+    """
+    near = (round(near[0], 1), round(near[1], 1)) if near else None
+    if _B5_RE_WATER_WORD.match(query):
+        bare = _B5_RE_WATER_PREFIX.sub("", query).strip()
+        asks = [query] + ([bare] if len(bare) >= 2 and bare.lower() != query.lower() else [])
+    else:
+        asks = ["lago " + query, query]
+    feats, fails = [], 0
+    for q in asks:
+        try:
+            feats += _b5_photon_raw(q, near)
+        except Exception:
+            fails += 1
+    if fails == len(asks):
+        raise RuntimeError("Photon non risponde")
+    want, rows = _b5_name_core(query), []
+    for n, feat in enumerate(feats):
+        pr = feat.get("properties") or {}
+        xy = (feat.get("geometry") or {}).get("coordinates") or []
+        name = str(pr.get("name") or "").strip()
+        is_water = (pr.get("osm_value") in _B5_PHOTON_WATER
+                    and pr.get("osm_key") in ("natural", "water", "waterway", "landuse"))
+        is_town = pr.get("osm_key") == "place" and pr.get("osm_value") in _B5_PHOTON_PLACES
+        if len(xy) < 2 or not name or not (is_water or is_town):
+            continue
+        lon, lat = _b5_f(xy[0], None), _b5_f(xy[1], None)
+        if lat is None or lon is None:
+            continue
+        if any(o["name"].lower() == name.lower() and abs(o["lat"] - lat) < 0.05 and abs(o["lon"] - lon) < 0.05
+               for *_, o in rows):
+            continue
+        admin = " · ".join(str(x) for x in (pr.get("county"), pr.get("state")) if x and str(x) != name)
+        score = _b5_difflib.SequenceMatcher(None, want, _b5_name_core(name)).ratio()
+        rows.append((-round(score, 2), 0 if is_water else 1, n, {
+            "name": name, "admin": admin, "country": str(pr.get("country") or ""),
+            "lat": round(lat, 4), "lon": round(lon, 4), "tz": _b5_guess_tz(lat, lon)}))
+    rows.sort(key=lambda r: r[:3])
+    best = -rows[0][0] if rows else 0
+    # con un nome quasi giusto i paesi che c'entrano poco sono rumore ("fiume po" -> Porto, Porano); l'acqua resta,
+    # perché cercando una zona ("sarzana") i laghi lì intorno sono proprio quello che si cerca
+    rows = [r for r in rows if r[1] == 0 or best < 0.85 or -r[0] >= best - 0.4]
+    return [r[3] for r in rows[:8]]
+
+
+def _b5_with_tz(loc):
+    """Località scelta: se il fuso manca (risultati di Photon fuori dall'Italia) lo chiede a Open-Meteo."""
+    if loc.get("tz"):
+        return loc
+    try:
+        tz = _b5_tz_for_coords(round(_b5_f(loc.get("lat")), 4), round(_b5_f(loc.get("lon")), 4))
+    except Exception:
+        tz = ""
+    return dict(loc, tz=tz or _b5_guess_tz(_b5_f(loc.get("lat")), _b5_f(loc.get("lon"))))
+
+
+def _b5_search_location(query, near=None):
+    """-> (elenco località, messaggio per l'utente oppure ''). Con risultati il messaggio è solo informativo. near =
+    (lat, lon) della località in uso: per la ricerca dei laghi i posti vicini vengono prima."""
     q = " ".join(str(query or "").split())
     if len(q) < 2:
         return [], "Scrivi il nome di un lago o di una città, oppure incolla le coordinate."
     coords = _b5_parse_coords(q)
     if coords:
         lat, lon = coords
+        if _b5_at_sea(lat, lon):
+            return [], B5_SEA_COORDS_MSG
         try:
             tz = _b5_tz_for_coords(round(lat, 4), round(lon, 4))
         except Exception:
             tz = ""
         return [{"name": "Coordinate", "admin": "%.4f, %.4f" % (lat, lon), "country": "",
                  "lat": round(lat, 4), "lon": round(lon, 4), "tz": tz or _b5_guess_tz(lat, lon)}], ""
+    try:
+        found = _b5_photon(q, near)
+    except Exception:
+        found = []                                  # Photon non risponde: si prova l'archivio di Open-Meteo
+    if found:
+        return found, ""
     short = _B5_RE_WATER_PREFIX.sub("", q).strip()
     try:
         found = _b5_geocode(q)
         if not found and len(short) >= 2 and short.lower() != q.lower():
             found = _b5_geocode(short)
             if found:
-                return found, ("I laghi non sono nell'archivio dei luoghi: ecco le località «%s». Per un punto "
-                               "preciso sul lago usa «Scegli sulla mappa»." % short)
+                return found, ("Lago non trovato: ecco le località «%s». Per un punto preciso usa la mappa."
+                               % short)
     except Exception as exc:
         return [], "Ricerca non riuscita (%s). Controlla la connessione e riprova." % type(exc).__name__
     if not found:
-        return [], ("Nessun risultato per «%s». I laghi non sono nell'archivio: cerca il comune più vicino o "
-                    "scegli il punto sulla mappa." % q)
+        return [], ("Nessun risultato per «%s»: prova il paese più vicino oppure scegli il punto sulla mappa." % q)
     return found, ""
 
 
@@ -7642,6 +7986,217 @@ def _b5_point_location(lat, lon, source):
 
 
 # ------------------------------------------------------------------------------
+# MARE: IL BLACK BASS VIVE IN ACQUA DOLCE
+# ------------------------------------------------------------------------------
+# Un punto in mare non diventa né la località né lo spot di una cattura. Si legge la tessera vettoriale di
+# OpenStreetMap che contiene il punto (zoom B5_SEA_ZOOM): il mare vi è disegnato a parte, separato da laghi, lagune e
+# fiumi, quindi i laghi a due passi dalla costa restano validi. Formato delle tessere: Mapbox Vector Tile (protobuf),
+# letto qui sotto senza librerie in più (servono solo gli strati del mare).
+_B5_SEA_DOWN = {}                   # fonte del mare che non ha risposto -> ora (time.time) fino a cui si salta
+
+
+def _b5_pb_varint(buf, i):
+    """Protobuf: intero "varint" che comincia in buf[i] -> (valore, posizione dopo)."""
+    out = shift = 0
+    while True:
+        b = buf[i]
+        i += 1
+        out |= (b & 0x7F) << shift
+        if b < 0x80:
+            return out, i
+        shift += 7
+
+
+def _b5_pb_fields(buf):
+    """Protobuf: (numero del campo, valore) di ogni campo del messaggio; i campi a lunghezza danno i byte."""
+    i, end = 0, len(buf)
+    while i < end:
+        key, i = _b5_pb_varint(buf, i)
+        kind = key & 7
+        if kind == 0:
+            val, i = _b5_pb_varint(buf, i)
+        elif kind == 2:
+            size, i = _b5_pb_varint(buf, i)
+            val, i = buf[i:i + size], i + size
+        elif kind in (1, 5):
+            size = 8 if kind == 1 else 4
+            val, i = buf[i:i + size], i + size
+        else:
+            raise ValueError("protobuf: tipo di campo %d" % kind)
+        yield key >> 3, val
+
+
+def _b5_pb_packed(buf):
+    """Protobuf: elenco di varint impacchettati -> lista di interi."""
+    out, i = [], 0
+    while i < len(buf):
+        val, i = _b5_pb_varint(buf, i)
+        out.append(val)
+    return out
+
+
+def _b5_mvt_rings(geom):
+    """Geometria MVT (MoveTo / LineTo / ClosePath, spostamenti zigzag) -> anelli [[(x, y), ...], ...]."""
+    rings, ring, x, y, i = [], [], 0, 0, 0
+    while i < len(geom):
+        cmd, count = geom[i] & 7, geom[i] >> 3
+        i += 1
+        if cmd == 7:                                # ClosePath: l'anello è finito
+            if ring:
+                rings.append(ring)
+            ring = []
+            continue
+        for _ in range(count):
+            dx, dy = geom[i], geom[i + 1]
+            i += 2
+            x += (dx >> 1) ^ -(dx & 1)
+            y += (dy >> 1) ^ -(dy & 1)
+            if cmd == 1:                            # MoveTo: comincia un anello nuovo
+                if ring:
+                    rings.append(ring)
+                ring = [(x, y)]
+            else:
+                ring.append((x, y))
+    if ring:
+        rings.append(ring)
+    return rings
+
+
+def _b5_mvt_sea(tile, layer, field, value):
+    """
+    Tessera MVT -> (estensione, [anelli di ogni poligono]) dei poligoni dello strato `layer`; con `field` solo quelli
+    con field = value (OpenMapTiles: strato "water", class "ocean"; Shortbread: strato "ocean", tutti).
+    """
+    buf, extent, out = memoryview(tile), 4096, []
+    for num, lay in _b5_pb_fields(buf):
+        if num != 3:                                # 3 = strato
+            continue
+        name, feats, keys, vals, ext = None, [], [], [], 4096
+        for n2, v2 in _b5_pb_fields(lay):
+            if n2 == 1:
+                name = bytes(v2).decode("utf-8", "replace")
+                if name != layer:
+                    break                           # strato che non serve: non si legge oltre
+            elif n2 == 2:
+                feats.append(v2)
+            elif n2 == 3:
+                keys.append(bytes(v2).decode("utf-8", "replace"))
+            elif n2 == 4:                           # valore: serve solo il testo (campo 1)
+                vals.append(next((bytes(v3).decode("utf-8", "replace") for n3, v3 in _b5_pb_fields(v2) if n3 == 1),
+                                 None))
+            elif n2 == 5:
+                ext = v2
+        if name != layer:
+            continue
+        extent = ext
+        for feat in feats:
+            tags, kind, geom = [], 0, []
+            for n3, v3 in _b5_pb_fields(feat):
+                if n3 == 2:
+                    tags = _b5_pb_packed(v3)
+                elif n3 == 3:
+                    kind = v3
+                elif n3 == 4:
+                    geom = _b5_pb_packed(v3)
+            if kind != 3:                           # 3 = poligono
+                continue
+            if field:
+                props = {keys[tags[k]]: vals[tags[k + 1]] for k in range(0, len(tags) - 1, 2)
+                         if tags[k] < len(keys) and tags[k + 1] < len(vals)}
+                if props.get(field) != value:
+                    continue
+            out.append(_b5_mvt_rings(geom))
+    return extent, out
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _b5_tile_url(tilejson: str) -> str:
+    """Indirizzo delle tessere dal TileJSON (OpenFreeMap lo cambia a ogni aggiornamento delle mappe)."""
+    resp = requests.get(tilejson, headers=B5_HTTP_HEADERS, timeout=B5_SEA_TIMEOUT_S)
+    resp.raise_for_status()
+    return str(resp.json()["tiles"][0])
+
+
+@st.cache_data(ttl=7 * 86400, max_entries=5000, show_spinner=False)
+def _b5_sea_tile(z: int, x: int, y: int) -> tuple:
+    """
+    Mare nella tessera z/x/y -> (estensione, [anelli di ogni poligono di mare]), lista vuota se non c'è mare. Prova
+    le fonti di B5_SEA_SOURCES in ordine; una che non risponde si salta per B5_SEA_RETRY_S (niente attese a ogni
+    tocco). Se nessuna risponde solleva eccezione (e niente cache).
+    """
+    last = None
+    for url, layer, field, value in B5_SEA_SOURCES:
+        if _B5_SEA_DOWN.get(url, 0.0) > _b5_time.time():
+            continue
+        try:
+            if "{z}" not in url:
+                url = _b5_tile_url(url)
+            resp = requests.get(url.format(z=z, x=x, y=y), headers=B5_HTTP_HEADERS, timeout=B5_SEA_TIMEOUT_S)
+            resp.raise_for_status()
+            data = resp.content
+            if data[:2] == b"\x1f\x8b":             # gzip non dichiarato dal server
+                data = _b5_gzip.decompress(data)
+            return _b5_mvt_sea(data, layer, field, value)
+        except Exception as exc:
+            _B5_SEA_DOWN[url] = _b5_time.time() + B5_SEA_RETRY_S
+            last = exc
+    raise last or RuntimeError("le fonti del mare non rispondono")
+
+
+def _b5_in_rings(rings, px, py):
+    """Punto dentro il poligono (anelli esterni e buchi insieme, regola pari-dispari)?"""
+    inside = False
+    for ring in rings:
+        n = len(ring)
+        for k in range(n):
+            (x1, y1), (x2, y2) = ring[k], ring[(k + 1) % n]
+            if (y1 > py) != (y2 > py) and px < (x2 - x1) * (py - y1) / (y2 - y1) + x1:
+                inside = not inside
+    return inside
+
+
+def _b5_shore_dist(rings, px, py, extent):
+    """Distanza (unità della tessera) dal punto alla riva più vicina nel poligono; i lati sul bordo della tessera, dove
+    il mare è solo tagliato, non sono riva. Infinito se nella tessera non c'è riva (mare aperto)."""
+    best = float("inf")
+    for ring in rings:
+        n = len(ring)
+        for k in range(n):
+            (x1, y1), (x2, y2) = ring[k], ring[(k + 1) % n]
+            if (x1 == x2 and (x1 <= 0 or x1 >= extent)) or (y1 == y2 and (y1 <= 0 or y1 >= extent)):
+                continue
+            dx, dy = x2 - x1, y2 - y1
+            t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+            best = min(best, _b5_math.hypot(px - x1 - t * dx, py - y1 - t * dy))
+    return best
+
+
+def _b5_at_sea(lat, lon):
+    """
+    Il punto è in mare? True / False, oppure None se non si può dire (fonti giù: allora il punto si accetta, meglio
+    che rifiutare un lago vero). A meno di B5_SEA_SHORE_M dalla riva vale come terra (GPS sulla riva, foci).
+    """
+    lat, lon = _b5_f(lat, None), _b5_f(lon, None)
+    if lat is None or lon is None or not (-85.0 < lat < 85.0 and -180.0 <= lon <= 180.0):
+        return None
+    n = 2 ** B5_SEA_ZOOM
+    rad = _b5_math.radians(lat)
+    fx = (lon + 180.0) / 360.0 * n
+    fy = (1.0 - _b5_math.log(_b5_math.tan(rad) + 1.0 / _b5_math.cos(rad)) / _b5_math.pi) / 2.0 * n
+    x, y = min(n - 1, int(fx)), min(n - 1, max(0, int(fy)))
+    try:
+        extent, polys = _b5_sea_tile(B5_SEA_ZOOM, x, y)
+    except Exception:
+        return None
+    px, py = (fx - x) * extent, (fy - y) * extent
+    sea = next((rings for rings in polys if _b5_in_rings(rings, px, py)), None)
+    if sea is None:
+        return False
+    meters = 40075016.686 * _b5_math.cos(rad) / n / extent       # metri per unità della tessera
+    return _b5_shore_dist(sea, px, py, extent) * meters > B5_SEA_SHORE_M
+
+
+# ------------------------------------------------------------------------------
 # STATO DI SESSIONE E CALLBACK
 # ------------------------------------------------------------------------------
 # I valori dei controlli stanno in st.session_state con la chiave del widget. Vengono messi qui prima che i widget
@@ -7684,7 +8239,7 @@ def _b5_init_state():
     ss.setdefault("b5_geo_results", [])
     ss.setdefault("b5_geo_msg", "")
     ss.setdefault("b5_geo_n", 0)
-    choices = {"b5_goal": B5_GOALS, "b5_when": B5_WHEN_OPTIONS, "b5_water": B5_WATER_LEVELS,
+    choices = {"b5_goal": B5_GOALS, "b5_units": B5_UNITS, "b5_when": B5_WHEN_OPTIONS, "b5_water": B5_WATER_LEVELS,
                "b5_forage": B5_FORAGE_BASES, "b5_press": B5_PRESSURES, "b5_turb": B5_TURBIDITIES}
     for key, value in B5_DEFAULTS.items():
         if key not in ss or (key in choices and ss[key] not in choices[key]):
@@ -7704,13 +8259,15 @@ def _b5_cb_search():
     risultati: restano nell'elenco finché non se ne tocca uno (la previsione dietro il cassetto non si vede).
     """
     ss = st.session_state
-    found, msg = _b5_search_location(ss.get("b5_q"))
+    here = ss.get("b5_loc") or {}
+    near = (_b5_f(here.get("lat"), None), _b5_f(here.get("lon"), None))
+    found, msg = _b5_search_location(ss.get("b5_q"), near if None not in near else None)
     ss["b5_geo_results"] = found if len(found) > 1 else []
     ss["b5_geo_msg"] = msg
     ss["b5_geo_found"] = bool(found)
     ss["b5_geo_n"] = int(ss.get("b5_geo_n", 0)) + 1      # nuova chiave = l'elenco riparte senza scelta
     if len(found) == 1:
-        ss["b5_loc"] = found[0]
+        ss["b5_loc"] = _b5_with_tz(found[0])
         ss["b5_drawer_close"] = True
 
 
@@ -7718,7 +8275,7 @@ def _b5_cb_pick(key):
     ss = st.session_state
     results, idx = ss.get("b5_geo_results") or [], ss.get(key)
     if isinstance(idx, int) and 0 <= idx < len(results):
-        ss["b5_loc"] = results[idx]
+        ss["b5_loc"] = _b5_with_tz(results[idx])
         ss["b5_drawer_close"] = True
 
 
@@ -7733,6 +8290,7 @@ def _b5_cb_open(which):
     for key in B5_DRAWER_KEYS:
         ss[_b5_dk(key)] = ss[key]
     ss["b5_geo_results"], ss["b5_geo_msg"] = [], ""
+    ss.pop("b5_where_back", None)                   # GPS e mappa ripartono dalla località in uso, senza avvisi
     ss["b5_drawer"] = which
 
 
@@ -7766,7 +8324,7 @@ def _b5_css():
     bordo (chiavi b5_card_*), expander e metriche. Senza B4_UI resta B5_CSS.
     """
     ui = globals().get("B4_UI") or {}
-    css = B5_CSS
+    css = B5_FONT_IMPORT + B5_CSS
     if ui.get("overlay"):
         css += ('[data-testid="stPopoverBody"]{background:%s !important;border-color:%s !important;'
                 "-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);"
@@ -7776,7 +8334,7 @@ def _b5_css():
                 "{background:%s}" % ui["card"])
         # pulsanti non scelti trasparenti: col fondo nero del tema sembravano buchi nei riquadri pieni
         css += '[data-testid="stButtonGroup"] button[aria-checked="false"]{background:transparent !important}'
-    return css
+    return css + B5_THEME_CSS
 
 
 def _b5_info(text, key):
@@ -7944,8 +8502,10 @@ export default function ({ data, parentElement, setTriggerValue }) {
     if (!map) return;
     const c = center();
     use.disabled = true;
-    setTriggerValue("punto", { lat: c.lat, lon: c.lng, src: "mappa" });
+    setTriggerValue("punto", { lat: c.lat, lon: c.lng, src: "mappa", zoom: map.getZoom() });
   };
+  if (d.open) open.onclick();                   // punto rifiutato (in mare): la mappa riparte aperta lì
+  if (d.msg) say(d.msg);
 
   return () => { if (ro) ro.disconnect(); if (map) map.remove(); root.remove(); };
 }
@@ -7957,8 +8517,11 @@ def _b5_where(loc):
     try:
         from streamlit.components import v2 as components_v2
         comp = components_v2.component("b5_dove", css=_B5_WHERE_CSS, js=_B5_WHERE_JS, isolate_styles=False)
-        res = comp(key="b5_where", on_punto_change=lambda: None,
-                   data={"lat": _b5_f(loc.get("lat"), 43.13), "lon": _b5_f(loc.get("lon"), 12.10), "zoom": 11,
+        back = st.session_state.get("b5_where_back") or {}     # punto appena rifiutato (in mare), vedi il cassetto
+        here = back or loc
+        res = comp(key="b5_where_%d" % int(st.session_state.get("b5_where_n", 0)), on_punto_change=lambda: None,
+                   data={"lat": _b5_f(here.get("lat"), 43.13), "lon": _b5_f(here.get("lon"), 12.10),
+                         "zoom": back.get("zoom") or 11, "open": bool(back.get("open")), "msg": back.get("msg", ""),
                          "tiles": B5_MAP_TILES, "attr": B5_MAP_ATTRIBUTION, "leaflet": B5_LEAFLET})
     except Exception:
         return None                     # Streamlit senza componenti v2: restano ricerca e coordinate
@@ -7968,7 +8531,9 @@ def _b5_where(loc):
     lat, lon = _b5_f(pt.get("lat"), None), _b5_f(pt.get("lon"), None)
     if lat is None or lon is None or not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None
-    return {"lat": lat, "lon": lon, "src": "gps" if pt.get("src") == "gps" else "mappa"}
+    zoom = _b5_f(pt.get("zoom"), None)
+    return {"lat": lat, "lon": lon, "src": "gps" if pt.get("src") == "gps" else "mappa",
+            "zoom": int(zoom) if zoom is not None and 1 <= zoom <= 19 else None}
 
 
 # Cassetti (st.dialog): ogni tocco al loro interno riesegue solo la funzione del cassetto; on_dismiss="rerun"
@@ -7980,7 +8545,7 @@ def _b5_drawer_location():
         st.rerun()
     # enter_to_submit=False: senza, Streamlit scrive "Press Enter to submit form" (in inglese) dentro il campo
     with st.form("b5_form_search", border=False, enter_to_submit=False):
-        st.text_input("Comune vicino al lago o coordinate", key="b5_q", placeholder="Bolsena · 43.12, 12.10")
+        st.text_input("Lago, paese o coordinate", key="b5_q", placeholder="Lago di Bolsena · Sarzana · 43.12, 12.10")
         st.form_submit_button(":material/search: Cerca", on_click=_b5_cb_search, type="primary", width="stretch")
     if ss.get("b5_geo_msg"):
         (st.info if ss.get("b5_geo_found") else st.warning)(_b5_mdx(ss["b5_geo_msg"]))
@@ -7992,12 +8557,27 @@ def _b5_drawer_location():
         st.radio("Risultati: tocca quello giusto", list(range(len(results))), key=key, index=None,
                  format_func=lambda i: labels[i] if isinstance(i, int) and 0 <= i < len(labels) else "",
                  on_change=_b5_cb_pick, args=(key,))
+    places = _b5_diary_places()
+    if places:                                      # i laghi del diario, con un tocco (se il Diario è già aperto)
+        key = "b5_mylake_%d" % int(ss.get("b5_geo_n", 0))
+        st.pills("I tuoi laghi", [p["name"] for p in places], key=key, on_change=_b5_cb_mylake, args=(key, places))
     loc = ss["b5_loc"]
     point = _b5_where(loc)
     if point:                                       # punto dal GPS o dalla mappa: nome, fuso, e il cassetto si chiude
         with st.spinner("Cerco il nome del posto…"):
-            ss["b5_loc"] = _b5_point_location(point["lat"], point["lon"], point["src"])
-        st.rerun()
+            sea = _b5_at_sea(point["lat"], point["lon"])
+            if not sea:
+                ss["b5_loc"] = _b5_point_location(point["lat"], point["lon"], point["src"])
+        if not sea:
+            ss.pop("b5_where_back", None)
+            st.rerun()
+        # in mare: la località resta quella di prima. GPS e mappa ripartono puliti (chiave nuova: niente pulsante
+        # fermo su "Cerco la posizione…") con l'avviso accanto; la mappa si riapre sul punto rifiutato, stesso zoom,
+        # così basta spostarla fino al lago
+        ss["b5_where_back"] = dict(point, open=point["src"] == "mappa",
+                                   msg=B5_SEA_GPS_MSG if point["src"] == "gps" else B5_SEA_MSG)
+        ss["b5_where_n"] = int(ss.get("b5_where_n", 0)) + 1
+        st.rerun(scope="fragment")
     st.caption("Ora: %s · %.3f, %.3f" % (_b5_mdx(_b5_loc_label(loc)), _b5_f(loc.get("lat")), _b5_f(loc.get("lon"))))
 
 
@@ -8271,6 +8851,8 @@ _B5_ICONS = {                           # nome: (larghezza della griglia, disegn
     # sezione Diario: cappotto (cerchio barrato) e ore in acqua
     "zero": (24, '<circle cx="12" cy="12" r="7.5"/><path d="M6.7 17.3 17.3 6.7"/>'),
     "orologio": (24, '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+    "coppa": (24, '<path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5.5a2.5 2.5 0 0 0 2.5 4M16 6h2.5a2.5 2.5 0 0 1-2.5 '
+                  '4M12 13v4M8.5 20.5h7M10 17h4"/>'),
 }
 
 
@@ -8306,46 +8888,6 @@ def _b5_sun_chip(astro):
     return ('<span class="b5-chip" title="Alba e tramonto"><span class="b5-sr">Alba</span><span>%s</span>%s'
             '<span class="b5-sr">tramonto</span><span>%s</span></span>'
             % (esc(astro.get("sunrise_str", "--:--")), _b5_icon("arco", 16), esc(astro.get("sunset_str", "--:--"))))
-
-
-def _b5_render_header(ctl, day, astro, meteo=False):
-    """Riquadro in cima alla pagina. Nel Meteo senza il pulsante Condizioni e senza la riga delle impostazioni."""
-    loc = ctl["loc"]
-    sub = " · ".join(p for p in (str(loc.get("admin") or ""), str(loc.get("country") or "")) if p)
-    with st.container(border=True, gap="xsmall", key="b5_card_header"):
-        with st.container(horizontal=True, vertical_alignment="top", gap="small"):
-            with st.container(gap="xsmall"):
-                # il nome è il pulsante del cassetto Località: la freccina accanto dice che si può toccare. Sta nel
-                # testo, attaccata all'ultima parola (spazio unificatore): con icon= restava sul bordo destro, lontana
-                # dal nome quando questo va a capo
-                st.button("%s :material/expand_more:" % _b5_mdx(loc.get("name") or "Località"), key="b5_open_loc",
-                          type="tertiary", on_click=_b5_cb_open, args=("loc",))
-                if sub:
-                    st.caption(_b5_mdx(sub))
-            if not meteo:
-                with st.container(width="content", key="b5_actions"):
-                    st.button(":material/tune:", key="b5_open_cond", on_click=_b5_cb_open, args=("cond",))
-        chips = [_b5_chip(_b5_icon("data"), "%s · %s" % (_b5_rel_label((day - ctl["today"]).days),
-                                                           _b5_fmt_date(day)))]
-        if astro:
-            status = astro.get("sun_status", "normale")
-            if status == "sempre_su":
-                chips.append(_b5_chip(_b5_icon("sole"), "Sole di mezzanotte"))
-            elif status == "sempre_giu":
-                chips.append(_b5_chip(_b5_icon("notte"), "Notte polare"))
-            else:
-                chips.append(_b5_sun_chip(astro))
-            illum = _b5_f(astro.get("moon_illum"), 0.0)
-            phase = str(astro.get("moon_phase") or "")
-            chips.append(_b5_chip(_b5_moon_icon(illum, astro.get("moon_elong"), astro.get("lat")),
-                                  "%d %%" % int(round(illum)) + (" · " + phase.lower() if phase and phase != "n/d" else ""),
-                                  "Luna"))
-        # HTML nel Markdown: st.html toglierebbe gli SVG
-        st.markdown('<div class="b5-chips">%s</div>' % "".join(chips), unsafe_allow_html=True)
-        if not meteo:
-            st.caption(_b5_settings_summary(ctl))
-        if loc == B5_DEFAULT_LOCATION:
-            st.caption("Per il tuo lago tocca il nome qui sopra.")
 
 
 def _b5_config_warnings():
@@ -8398,6 +8940,14 @@ def _b5_render_error(res):
     st.button(":material/refresh: Riprova", key="b5_retry", on_click=_b5_cb_refresh, width="stretch")
     with st.expander("Dettagli tecnici"):
         st.text(_b5_short_exc(exc, 600))
+
+
+def _b5_render_sea():
+    """Località in mare (da un diario vecchio, o scelta quando il controllo non rispondeva): niente previsione."""
+    st.warning("La località scelta è in mare: lì il black bass non c'è e la previsione non avrebbe senso. Scegli un "
+               "lago, un fiume o un punto a terra.", title="Località in mare", icon=":material/waves:")
+    st.button(":material/location_on: Cambia località", key="b5_sea_loc", type="primary", on_click=_b5_cb_open,
+              args=("loc",), width="stretch")
 
 
 def _b5_render_notices(res):
@@ -8742,7 +9292,66 @@ def _b5_report_sections(res):
                  title="Report tattico non disponibile", icon=":material/warning:")
         return None
     state = (res.get("sim") or {}).get("biological_state")
-    return _b5_strategy_sections(report, res["ana"], res["goal"], state)
+    secs = _b5_strategy_sections(report, res["ana"], res["goal"], state)
+    for sec in secs:                                # unità scelte sopra i riquadri (_b5_units)
+        sec["hint"] = _b5_units(sec["hint"])
+        sec["parts"] = [(cap, _b5_units(txt)) for cap, txt in sec["parts"]]
+    return secs
+
+
+_B5_RE_FTIN = _b5_re.compile(r"(\d+)'(\d+)\"(?:\s*-\s*(\d+)'(\d+)\")?")
+_B5_RE_OZ = _b5_re.compile(r"(\d+(?:/\d+)?)(?:\s*-\s*(\d+(?:/\d+)?))?\s?oz\b")
+_B5_RE_OZ_G = _b5_re.compile(r"\b\d+(?:/\d+)? oz, circa (\d+) g")
+_B5_RE_LB = _b5_re.compile(r"(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?\s?lb\b")
+_B5_RE_IN = _b5_re.compile(r"(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?\"")
+_B5_RE_DOT = _b5_re.compile(r"(?<=\d)\.(?=\d)")
+
+
+def _b5_units(text):
+    """
+    Testo del Blocco 3 nelle unità scelte (B5_UNITS). Con "metriche": once -> grammi (a mezzo grammo sotto i 15 g, poi
+    interi: 3/8 oz -> 10,5 g), libbre -> chili (16-20 lb -> 7,3-9,1 kg; un intervallo con la stessa precisione),
+    piedi e pollici della canna -> metri (7'2" -> 2,18 m) e pollici delle esche -> centimetri (7-10" -> 18-25 cm).
+    I diametri in mm restano, con la virgola decimale come tutti i numeri; "da 2 oz, circa 60 g" diventa
+    "da circa 60 g".
+    """
+    if not text or st.session_state.get("b5_units", B5_UNITS[0]) != "metriche":
+        return text
+
+    def frac(t):
+        a, _, b = t.partition("/")
+        return float(a) / float(b) if b else float(a)
+
+    def grams(v):
+        g = v * 28.3495
+        return _b5_it(round(g * 2) / 2.0, 1).replace(",0", "") if g < 15 else "%d" % round(g)
+
+    def kilos(a, b=None):
+        ka, kb = a * 0.453592, (b * 0.453592 if b is not None else None)
+        fine = ka < 10                              # sotto i 10 kg un decimale, per tutto l'intervallo
+        out = _b5_it(ka, 1) if fine else "%d" % round(ka)
+        if kb is not None:
+            out += "-" + (_b5_it(kb, 1) if fine else "%d" % round(kb))
+        return out + " kg"
+
+    def cms(v):
+        c = v * 2.54
+        return _b5_it(round(c * 2) / 2.0, 1).replace(",0", "") if c < 10 else "%d" % round(c)
+
+    def num(t):
+        return float(t.replace(",", "."))
+
+    def metres(ft, inch):
+        return _b5_it((int(ft) * 12 + int(inch)) * 0.0254, 2)
+
+    t = _B5_RE_OZ_G.sub(r"circa \1 g", str(text))
+    t = _B5_RE_FTIN.sub(lambda m: metres(m.group(1), m.group(2)) + (
+        "-" + metres(m.group(3), m.group(4)) if m.group(3) else "") + " m", t)
+    t = _B5_RE_OZ.sub(lambda m: grams(frac(m.group(1))) + (
+        "-" + grams(frac(m.group(2))) if m.group(2) else "") + " g", t)
+    t = _B5_RE_IN.sub(lambda m: cms(num(m.group(1))) + ("-" + cms(num(m.group(2))) if m.group(2) else "") + " cm", t)
+    t = _B5_RE_LB.sub(lambda m: kilos(num(m.group(1)), num(m.group(2)) if m.group(2) else None), t)
+    return _B5_RE_DOT.sub(",", t)                   # virgola decimale all'italiana: 0.28 mm -> 0,28 mm
 
 
 # Il piano è una griglia di riquadri (2 per riga), ognuno con il riassunto della sua sezione;
@@ -8777,7 +9386,11 @@ def _b5_tab_report(res):
     if secs is None:
         return
     by = {s["id"]: s for s in secs}
-    st.caption("Tocca un riquadro per il dettaglio.")
+    # unità di misura: un interruttore piccolo sopra i riquadri (vale per esche, filo e canna)
+    with st.container(horizontal=True, vertical_alignment="center", gap="small", key="b5_units_row"):
+        st.caption("Tocca un riquadro per il dettaglio.", width="stretch")
+        st.segmented_control("Unità di misura", B5_UNITS, format_func=B5_UNITS_LABELS.get, key="b5_units",
+                             required=True, label_visibility="collapsed", width="content")
     for row in _B5_TILE_ROWS:
         row = [sid for sid in row if sid in by]
         if not row:
@@ -8850,9 +9463,10 @@ def _b5_tab_hours(res):
 # ------------------------------------------------------------------------------
 # Pillola galleggiante in basso con le sezioni (Pesca, Meteo, Diario): componente st.components.v2 che disegna
 # la barra fuori dal flusso della pagina (in <body>, position:fixed) e a Python manda solo la sezione toccata
-# ("sezione"). Lo stesso componente segue lo scorrimento (l'elemento che scorre è stMain, non la pagina) e, secondo
-# B5_TOPBAR_MODE, nasconde la fascia in alto scendendo e la riporta risalendo ("nascondi"), oppure la sostituisce con
-# una riga sottile con luogo e giorno e toglie le scritte dalla pillola ("compatta"). Stili con prefisso b5-nav/b5-top.
+# ("sezione"). Lo stesso componente disegna la barra in alto con il logo (al posto della fascia di Streamlit) e la fa
+# seguire lo scorrimento (l'elemento che scorre è stMain, non la pagina): logo che si rimpicciolisce, vetro e riga con
+# luogo e giorno, guidati da una sola variabile CSS (--b5k, 0-1) aggiornata a ogni fotogramma. Scendendo la pillola
+# perde le scritte. Swipe sul contenuto: sezione accanto (vedi _B5_NAV_JS). Stili con prefisso b5-nav, b5n, b5t.
 _B5_NAV_ICONS = {                       # griglia 24, tratto 2, estremità tonde (come _B5_ICONS)
     # pesce di profilo verso destra, coda a sinistra
     "pesca": '<path d="M21.5 12c-2.2 3.4-5.2 5.2-8.6 5.2-2.6 0-4.9-1-6.9-3.1L2.5 17V7L6 9.9C8 7.8 10.3 6.8 12.9 6.8c3.4 '
@@ -8866,41 +9480,81 @@ _B5_NAV_ICONS = {                       # griglia 24, tratto 2, estremità tonde
 }
 _B5_NAV_CSS = """
 .st-key-b5_nav{position:absolute;width:0;height:0;overflow:hidden}
-#b5-nav{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:999980;display:flex;gap:2px;
-  padding:4px;border-radius:999px;transform:translateX(-50%);background:rgba(30,30,34,.9);
-  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
-  border:1px solid rgba(242,242,247,.12);box-shadow:0 10px 30px rgba(0,0,0,.55);
+/* Lo swipe verso destra cambia sezione: senza queste righe Chrome ed Edge lo prendono per "pagina precedente" e
+   chiudono l'app (prova del 03/11/2026). pan-y: sul contenuto il browser scorre solo in verticale e lo spostamento
+   di lato resta all'app; tabelle e strisce che scorrono di lato e le mappe hanno le loro regole e non cambiano. */
+html,body,[data-testid="stMain"]{overscroll-behavior-x:none}
+[data-testid="stMainBlockContainer"],#b5-nav{touch-action:pan-y pinch-zoom}
+/* Barra in alto: logo grande sulla scena; scorrendo, il logo si rimpicciolisce e sfuma, il vetro compare e arriva
+   la riga con luogo e giorno. Tutto segue --b5k (0 in cima, 1 dopo 120 px), aggiornato a ogni fotogramma. */
+#b5-top{position:fixed;top:0;left:0;right:0;z-index:999991;height:calc(56px + env(safe-area-inset-top,0px));
+  pointer-events:none}
+#b5-top .b5t-bg{position:absolute;inset:0;background:rgba(8,18,26,.78);
+  -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
+  border-bottom:1px solid rgba(255,255,255,.08);opacity:min(1, calc(var(--b5k,0) * 2.2))}
+#b5-top .b5t-logo{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 12px);height:32px;width:auto;
+  transform-origin:50% 0;transform:translateX(-50%) scale(calc(1 - .3 * min(1, var(--b5k,0) * 1.8)));
+  opacity:clamp(0, calc(1 - (var(--b5k,0) - .45) * 3), 1);filter:drop-shadow(0 1px 8px rgba(0,0,0,.35))}
+#b5-top .b5t-title{position:absolute;left:52px;right:52px;top:env(safe-area-inset-top,0px);display:block;
+  overflow:hidden;color:#F2F2F7;font:600 16px/56px "Outfit","Source Sans 3",-apple-system,BlinkMacSystemFont,sans-serif;
+  text-align:center;white-space:nowrap;text-overflow:ellipsis;
+  opacity:clamp(0, calc((var(--b5k,0) - .6) * 2.5), 1);
+  transform:translateY(calc((1 - clamp(0, calc((var(--b5k,0) - .6) * 2.5), 1)) * 8px))}
+.b5-scrolled #b5-top{pointer-events:auto;cursor:pointer}
+/* Pillola delle sezioni: vetro sopra il contenuto, evidenziatore che scivola sulla sezione scelta */
+#b5-nav{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:999980;display:flex;
+  padding:5px;border-radius:999px;transform:translateX(-50%);background:rgba(18,32,42,.58);
+  -webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);
+  border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 34px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08);
   font-family:"Source Sans","Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-#b5-nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:84px;
-  height:52px;margin:0;padding:0 16px;border:0;border-radius:999px;background:transparent;color:rgba(242,242,247,.6);
-  font:inherit;font-size:11.5px;font-weight:600;line-height:1.1;cursor:pointer;-webkit-tap-highlight-color:transparent;
-  transition:background-color .2s,color .2s,min-width .25s,height .25s}
-#b5-nav button svg{flex:none}
-#b5-nav button[aria-current="page"]{background:rgba(242,242,247,.12);color:#F2F2F7}
+#b5-nav .b5n-ind{position:absolute;top:5px;bottom:5px;left:5px;width:calc((100% - 10px) / var(--n,3));
+  border-radius:999px;background:rgba(255,255,255,.13);box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+  transform:translateX(calc(var(--i,0) * 100%));transition:transform .45s cubic-bezier(.3,1.3,.5,1)}
+#b5-nav button{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:2px;width:86px;height:52px;margin:0;padding:0;border:0;border-radius:999px;background:transparent;
+  color:rgba(242,242,247,.62);font:inherit;font-size:11.5px;font-weight:600;line-height:1.1;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;transition:color .25s,width .3s,height .3s}
+#b5-nav button svg{flex:none;transition:transform .25s}
+#b5-nav button:active svg{transform:scale(.88)}
+#b5-nav button span{max-height:14px;overflow:hidden;transition:opacity .2s,max-height .3s}
+#b5-nav button[aria-current="page"]{color:#fff}
 #b5-nav button[aria-current="page"] svg{color:var(--st-primary-color,#0fa874)}
 #b5-nav button:focus-visible{outline:2px solid var(--st-primary-color,#0fa874);outline-offset:-2px}
 @media (hover:hover){#b5-nav button:hover{color:#F2F2F7}}
-.b5-mini #b5-nav button{min-width:60px;height:44px}
-.b5-mini #b5-nav button span{display:none}
-[data-testid="stHeader"]{transition:transform .28s ease}
-.b5-hide [data-testid="stHeader"],.b5-compact [data-testid="stHeader"]{transform:translateY(-100%)}
-#b5-top{position:fixed;top:0;left:0;right:0;z-index:999991;height:40px;padding:0 48px;overflow:hidden;
-  background:rgba(0,0,0,.84);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
-  border-bottom:1px solid rgba(242,242,247,.1);color:#F2F2F7;
-  font:600 15px/40px "Source Sans","Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  text-align:center;white-space:nowrap;text-overflow:ellipsis;cursor:pointer;transform:translateY(-100%);
-  transition:transform .28s ease}
-.b5-compact #b5-top{transform:none}
-@media (prefers-reduced-motion:reduce){#b5-nav,#b5-nav button,#b5-top,[data-testid="stHeader"]{transition:none}}
+.b5-mini #b5-nav button{width:62px;height:44px}
+.b5-mini #b5-nav button span{max-height:0;opacity:0}
+@media (prefers-reduced-motion:reduce){#b5-nav .b5n-ind,#b5-nav button,#b5-nav button span{transition:none}}
 """
 _B5_NAV_JS = r"""
 const main = () => document.querySelector('[data-testid="stMain"]');
+const block = () => document.querySelector('[data-testid="stMainBlockContainer"]');
+const reduced = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const SHIFT = 48;                                // px di cui il contenuto esce ed entra cambiando sezione
+// Il dito su questi elementi non cambia sezione: campi, mappe, grafici, tabelle, cursori, cassetti, iframe e tutto
+// ciò che scorre di lato (ore del Meteo, giorni della settimana, striscia delle ore...).
+const NO_SWIPE = '.leaflet-container,.js-plotly-plot,[role="slider"],[data-baseweb="slider"],' +
+  '[data-testid="stDataFrame"],[role="dialog"],[data-testid="stPopoverBody"],#b5-top';
+
+function blocked(el) {
+  for (let e = el; e && e !== document.body && e.nodeType === 1; e = e.parentElement) {
+    const tag = e.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "IFRAME" || e.isContentEditable) return true;
+    if (e.matches(NO_SWIPE)) return true;
+    if (e.scrollWidth > e.clientWidth + 4) {
+      const o = getComputedStyle(e).overflowX;
+      if (o === "auto" || o === "scroll") return true;
+    }
+  }
+  return false;
+}
 
 export default function ({ data, setTriggerValue }) {
   const d = data || {};
   const S = window.__b5nav || (window.__b5nav = { y: 0 });
+  const root = document.documentElement;
   S.set = setTriggerValue;
-  S.mode = d.mode === "compatta" ? "compatta" : "nascondi";
+  S.items = d.items || [];
+  S.ids = S.items.map((it) => it.id);
   if (!S.after && d.after) {                   // ritorno da Google dopo Accedi / Esci nel Diario: si riapre il Diario
     S.after = true;
     try {
@@ -8911,64 +9565,195 @@ export default function ({ data, setTriggerValue }) {
       }
     } catch (e) { /* senza localStorage si resta sulla Pesca */ }
   }
+  root.classList.add("b5-bar");                // la fascia di Streamlit sparisce: c'è questa
+
+  let top = document.getElementById("b5-top");
+  if (!top) {
+    top = document.createElement("div");
+    top.id = "b5-top";
+    top.setAttribute("role", "button");
+    top.setAttribute("aria-label", "Torna in cima");
+    top.innerHTML = '<i class="b5t-bg"></i><img class="b5t-logo" alt="Bassometro"><span class="b5t-title"></span>';
+    document.body.appendChild(top);
+    top.addEventListener("click", () => {
+      const m = main();
+      if (m && m.scrollTop > 20) m.scrollTo({ top: 0, behavior: reduced() ? "auto" : "smooth" });
+    });
+  }
+  const img = top.querySelector(".b5t-logo");
+  if (d.logo && img.getAttribute("src") !== d.logo) img.setAttribute("src", d.logo);
+  img.hidden = !d.logo;
+  top.querySelector(".b5t-title").textContent = d.title || "";
+
   let nav = document.getElementById("b5-nav");
-  if (!nav) {                                  // una sola barra per pagina: resta tra un giro e l'altro dell'app
+  if (!nav) {                                  // una sola pillola per pagina: resta tra un giro e l'altro dell'app
     nav = document.createElement("nav");
     nav.id = "b5-nav";
     nav.setAttribute("aria-label", "Sezioni");
     document.body.appendChild(nav);
     nav.addEventListener("click", (e) => {
       const b = e.target.closest("button[data-id]");
-      if (!b || b.getAttribute("aria-current") === "page") return;
-      nav.querySelectorAll("button").forEach((x) => x.removeAttribute("aria-current"));
-      b.setAttribute("aria-current", "page");
-      const m = main();
-      if (m) m.scrollTo({ top: 0 });
-      S.set("sezione", b.dataset.id);
+      if (b) S.go(S.ids.indexOf(b.dataset.id));
     });
   }
-  nav.replaceChildren(...(d.items || []).map((it) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.dataset.id = it.id;
-    if (it.id === d.active) b.setAttribute("aria-current", "page");
-    b.innerHTML = it.icon;                      // SVG disegnato in Python
-    const s = document.createElement("span");
-    s.textContent = it.label;
-    b.appendChild(s);
-    return b;
-  }));
-  let top = document.getElementById("b5-top");
-  if (S.mode === "compatta") {
-    if (!top) {
-      top = document.createElement("div");
-      top.id = "b5-top";
-      top.setAttribute("role", "button");
-      top.setAttribute("aria-label", "Torna in cima");
-      document.body.appendChild(top);
-      top.addEventListener("click", () => { const m = main(); if (m) m.scrollTo({ top: 0, behavior: "smooth" }); });
-    }
-    top.textContent = d.title || "";
-  } else if (top) {
-    top.remove();
+  const sig = JSON.stringify(S.items.map((it) => [it.id, it.label]));
+  if (nav.dataset.sig !== sig) {
+    nav.dataset.sig = sig;
+    const ind = document.createElement("i");
+    ind.className = "b5n-ind";
+    nav.replaceChildren(ind, ...S.items.map((it) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.id = it.id;
+      b.innerHTML = it.icon;                    // SVG disegnato in Python
+      const s = document.createElement("span");
+      s.textContent = it.label;
+      b.appendChild(s);
+      return b;
+    }));
+    nav.style.setProperty("--n", String(S.items.length));
   }
+  const mark = (i) => {
+    nav.querySelectorAll("button[data-id]").forEach((b, k) => {
+      if (k === i) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+    nav.style.setProperty("--i", String(i));
+  };
+
+  // Cambio di sezione (tocco sulla pillola o swipe): il contenuto esce di lato, la sezione nuova entra dall'altro
+  // quando Streamlit l'ha disegnata (nessun elemento "vecchio" rimasto, al massimo 1,5 s).
+  S.reset = () => {
+    const el = block();
+    if (el) { el.style.transition = ""; el.style.transform = ""; el.style.opacity = ""; }
+    S.leaving = false;
+    S.pending = null;
+  };
+  S.go = (i) => {
+    const it = S.items[i];
+    const from = S.ids.indexOf(S.active);
+    if (!it || i === from || S.leaving) { S.back(); return; }
+    const dir = i > from ? 1 : -1;
+    S.leaving = true;
+    S.pending = it.id;
+    S.dir = dir;
+    mark(i);
+    const el = block();
+    const fast = reduced();
+    if (el && !fast) {
+      el.style.transition = "transform .18s ease-in, opacity .18s ease-in";
+      el.style.transform = "translateX(" + (-dir * SHIFT) + "px)";
+      el.style.opacity = "0";
+    }
+    setTimeout(() => {
+      const m = main();
+      if (m) m.scrollTo({ top: 0 });
+      S.set("sezione", it.id);
+    }, fast ? 0 : 170);
+    clearTimeout(S.guard);
+    S.guard = setTimeout(S.reset, 6000);       // se il giro non arriva, il contenuto torna visibile
+  };
+  S.back = () => {                              // swipe non abbastanza lungo: il contenuto torna al suo posto
+    const el = block();
+    if (!el || S.leaving) return;
+    el.style.transition = "transform .25s cubic-bezier(.2,.8,.2,1), opacity .25s";
+    el.style.transform = "";
+    el.style.opacity = "";
+  };
+  if (S.pending && d.active === S.pending) {   // arrivati nella sezione nuova
+    const el = block();
+    const dir = S.dir || 1;
+    const t0 = Date.now();
+    S.pending = null;
+    clearTimeout(S.guard);
+    if (el && !reduced()) {
+      el.style.transition = "none";
+      el.style.transform = "translateX(" + (dir * SHIFT) + "px)";
+      el.style.opacity = "0";
+      const show = () => {
+        if (Date.now() - t0 < 1500 && (Date.now() - t0 < 90 || el.querySelector('[data-stale="true"]'))) {
+          setTimeout(show, 50);
+          return;
+        }
+        el.style.transition = "transform .38s cubic-bezier(.2,.8,.2,1), opacity .3s ease-out";
+        el.style.transform = "";
+        el.style.opacity = "";
+        S.leaving = false;
+        setTimeout(() => { if (!S.leaving) el.style.transition = ""; }, 420);
+      };
+      setTimeout(show, 50);
+    } else {
+      S.reset();
+    }
+  }
+  S.active = d.active;
+  if (!S.leaving) mark(Math.max(0, S.ids.indexOf(d.active)));
+
+  // Scorrimento: --b5k per la barra (fotogramma per fotogramma), pillola più piccola scendendo
+  S.paint = () => {
+    S.raf = 0;
+    const m = main();
+    const y = m ? m.scrollTop : 0;
+    root.style.setProperty("--b5k", Math.min(1, Math.max(0, y / 120)).toFixed(3));
+    root.classList.toggle("b5-scrolled", y > 70);
+  };
   if (!S.onScroll) {                           // lo scroll di stMain non risale fino a document: si ascolta in cattura
     S.onScroll = (e) => {
       const el = e.target;
       if (!el || !el.getAttribute || el.getAttribute("data-testid") !== "stMain") return;
       const y = el.scrollTop, dy = y - S.y;
       S.y = y;
-      const c = document.documentElement.classList;
-      if (S.mode === "compatta") {
-        c.toggle("b5-compact", y > 64);
-        c.remove("b5-hide");
-        if (y <= 64 || dy < -4) c.remove("b5-mini"); else if (dy > 4) c.add("b5-mini");
-      } else {
-        c.remove("b5-compact", "b5-mini");
-        if (y <= 60 || dy < -4) c.remove("b5-hide"); else if (dy > 4) c.add("b5-hide");
-      }
+      const c = root.classList;
+      if (y <= 64 || dy < -6) c.remove("b5-mini"); else if (dy > 6) c.add("b5-mini");
+      if (!S.raf) S.raf = requestAnimationFrame(S.paint);
     };
     document.addEventListener("scroll", S.onScroll, { capture: true, passive: true });
+  }
+  S.paint();
+
+  // Swipe tra le sezioni: il contenuto segue il dito; oltre 80 px (o 45 px con un colpo veloce) si cambia sezione.
+  // Non parte dai bordi dello schermo (gesto "indietro" del telefono) né sopra elementi che usano già il dito.
+  if (!S.swipe) {
+    S.swipe = true;
+    let sw = null;
+    document.addEventListener("touchstart", (e) => {
+      sw = null;
+      if (e.touches.length !== 1 || S.leaving) return;
+      const t = e.touches[0];
+      if (t.clientX < 24 || t.clientX > window.innerWidth - 24) return;
+      if (document.querySelector('[role="dialog"]') || blocked(e.target)) return;
+      sw = { x: t.clientX, y: t.clientY, t: Date.now(), lock: null, dx: 0 };
+    }, { capture: true, passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!sw || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - sw.x, dy = t.clientY - sw.y;
+      if (!sw.lock) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        sw.lock = Math.abs(dx) > Math.abs(dy) * 1.4 ? "x" : "y";
+        if (sw.lock === "y") { sw = null; return; }
+      }
+      sw.dx = dx;
+      const i = S.ids.indexOf(S.active);
+      const edge = (dx > 0 && i <= 0) || (dx < 0 && i >= S.ids.length - 1);
+      const el = block();
+      if (el && !reduced()) {
+        el.style.transition = "none";
+        el.style.transform = "translateX(" + (dx * (edge ? 0.12 : 0.45)).toFixed(1) + "px)";
+        el.style.opacity = String(1 - Math.min(0.35, Math.abs(dx) / 700));
+      }
+    }, { capture: true, passive: true });
+    const end = () => {
+      if (!sw) return;
+      const s = sw;
+      sw = null;
+      if (s.lock !== "x") return;
+      const v = Math.abs(s.dx) / Math.max(1, Date.now() - s.t);
+      const i = S.ids.indexOf(S.active) + (s.dx < 0 ? 1 : -1);
+      if ((Math.abs(s.dx) > 80 || (Math.abs(s.dx) > 45 && v > 0.45)) && i >= 0 && i < S.ids.length) S.go(i);
+      else S.back();
+    };
+    document.addEventListener("touchend", end, { capture: true, passive: true });
+    document.addEventListener("touchcancel", end, { capture: true, passive: true });
   }
 }
 """
@@ -9006,7 +9791,7 @@ def _b5_nav():
         comp = components_v2.component("b5_barra", css=_B5_NAV_CSS, js=_B5_NAV_JS, isolate_styles=False)
         res = comp(key="b5_nav", on_sezione_change=lambda: None, data={
             "items": [{"id": sid, "label": label, "icon": _b5_nav_icon(sid)} for sid, label in B5_SECTIONS],
-            "active": ss["b5_section"], "mode": B5_TOPBAR_MODE, "title": _b5_nav_title(),
+            "active": ss["b5_section"], "logo": _b5_logo_data(), "title": _b5_nav_title(),
             "after": B5_AFTER_LOGIN_KEY})
     except Exception:                   # Streamlit senza componenti v2: le sezioni in cima alla pagina
         st.segmented_control("Sezione", ids, format_func=dict(B5_SECTIONS).get, key="b5_section", required=True,
@@ -9015,6 +9800,7 @@ def _b5_nav():
     pick = res.get("sezione") if hasattr(res, "get") else None
     if pick in ids and pick != ss["b5_section"]:
         ss["b5_section"] = pick
+        ss.pop("b5_pop_n", None)
         st.rerun()                      # la barra riceve subito la sezione nuova come attiva
     return ss["b5_section"]
 
@@ -9703,7 +10489,7 @@ def _b5_page_meteo():
     except Exception:
         astro = None
     with header:
-        _b5_render_header(ctl, ctl["today"], astro, meteo=True)
+        _b5_render_header(ctl, ctl["today"], astro, meteo=True, now=view)
     _b5_open_drawer()
     if view is None:
         st.error("Open-Meteo non ha risposto. Riprova tra poco.", title="Meteo non disponibile",
@@ -9855,7 +10641,19 @@ def _b5_catch_clean(c):
     return {"id": str(c.get("id") or _b5_new_id())[:24], "ora": str(c["ora"]),
             "kg": round(kg, 2) if kg is not None and 0 < kg <= 15 else None,
             "cm": round(cm, 1) if cm is not None and 0 < cm <= 100 else None,
-            "esca": " ".join(str(c.get("esca") or "").split())[:60], "nota": str(c.get("nota") or "")[:300]}
+            "esca": " ".join(str(c.get("esca") or "").split())[:60], "nota": str(c.get("nota") or "")[:300],
+            "spot": _b5_spot_clean(c.get("spot"))}
+
+
+def _b5_spot_clean(sp):
+    """Spot di una cattura: {lat, lon, acc (m, se dal GPS)} con 5 decimali (circa 1 m), oppure None."""
+    if not isinstance(sp, dict):
+        return None
+    lat, lon = _b5_f(sp.get("lat"), None), _b5_f(sp.get("lon"), None)
+    if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    acc = _b5_f(sp.get("acc"), None)
+    return {"lat": round(lat, 5), "lon": round(lon, 5), "acc": int(round(acc)) if acc and 0 < acc < 5000 else None}
 
 
 def _b5_trip_clean(t):
@@ -10239,9 +11037,9 @@ def _b5_trip_forecast(ctl, before):
     }
 
 
-# ---- ore in acqua e confronto con la previsione ---------------------------------------------------------------------
+# ---- ore di pesca e confronto con la previsione ---------------------------------------------------------------------
 def _b5_trip_hours(start, end):
-    """[(ora, minuti in acqua in quell'ora)] tra start ed end (minuti dalla mezzanotte, end escluso)."""
+    """[(ora, minuti di pesca in quell'ora)] tra start ed end (minuti dalla mezzanotte, end escluso)."""
     out = []
     for h in range(start // 60, min(24, (end + 59) // 60)):
         m = min(end, (h + 1) * 60) - max(start, h * 60)
@@ -10261,7 +11059,7 @@ def _b5_trip_end(trip, now):
 
 def _b5_trip_split(trip):
     """
-    Ore forti e altre ore di un'uscita conclusa: forti sono le ore in acqua con l'Attività prevista sopra la mediana di
+    Ore forti e altre ore di un'uscita conclusa: forti sono le ore di pesca con l'Attività prevista sopra la mediana di
     quell'uscita. -> (ore forti, catture, altre ore, catture) in ore e numero; None senza previsione o con meno di due
     ore di valore diverso.
     """
@@ -10294,7 +11092,7 @@ def _b5_trip_split(trip):
 def _b5_trip_strip(trip, now, big=False):
     """
     Striscia delle ore dell'uscita (un'ora prima e una dopo): colonne alte quanto l'Attività prevista su un binario
-    alto 100, verdi nelle ore in acqua e grigie fuori, un pallino bianco per ogni cattura sopra la sua ora. Il binario
+    alto 100, verdi nelle ore di pesca e grigie fuori, un pallino bianco per ogni cattura sopra la sua ora. Il binario
     fa leggere la scala anche quando gli indici sono bassi (in inverno 15-25). "" senza previsione.
     """
     prev = trip.get("prev")
@@ -10333,20 +11131,43 @@ def _b5_trip_strip(trip, now, big=False):
         if big and (h - h0) % 2 == 0:
             parts.append('<text x="%.1f" y="%d" text-anchor="middle">%02d</text>' % (x + bw / 2.0, hgt - 3, h))
     times = ", ".join(c["ora"] for c in trip["catture"]) or "nessuna"
-    label = "Attività prevista dalle %02d alle %02d; in acqua dalle %s; catture: %s" % (
+    label = "Attività prevista dalle %02d alle %02d; a pesca dalle %s; catture: %s" % (
         h0, h1, trip["inizio"] + (" alle " + trip["fine"] if trip["fine"] else ""), times)
     return ('<svg class="b5d-strip" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s" '
             'font-size="11" fill="rgba(242,242,247,.55)">%s</svg>'
             % (w, hgt, w, hgt, _b5_html.escape(label), "".join(parts)))
 
 
-def _b5_trip_result(trip, small=True):
+def _b5_trip_result(trip, small=True, rec=False):
+    """'3 bass max 1,4 kg' oppure 'Cappotto'; con `rec` la coppa del record del diario accanto."""
     n = len(trip["catture"])
     if not n:
-        return '<span class="b5d-zero">%s</span>' % ("In acqua" if trip["fine"] is None else "Cappotto")
+        return '<span class="b5d-zero">%s</span>' % ("In corso" if trip["fine"] is None else "Cappotto")
     kg = [c["kg"] for c in trip["catture"] if c["kg"]]
     extra = " <small>max %s kg</small>" % _b5_it(max(kg), 2 if max(kg) < 1 else 1) if kg and small else ""
-    return "%d bass%s" % (n, extra)
+    cup = ' <span class="b5d-cup" title="Il tuo record">%s</span>' % _b5_icon("coppa", 16) if rec else ""
+    return "%d bass%s%s" % (n, extra, cup)
+
+
+def _b5_catch_cond(trip, c):
+    """Condizioni all'ora della cattura, dalla previsione salvata: 'acqua 18,5° · 1006 hPa · vento 9 km/h · …'."""
+    ore = (trip.get("prev") or {}).get("ore") or {}
+    h = _b5_min(c["ora"]) // 60
+
+    def at(key):
+        vals = ore.get(key) or []
+        return vals[h] if h < len(vals) else None
+
+    parts = []
+    if at("acqua") is not None:
+        parts.append("acqua %s°" % _b5_it(at("acqua")))
+    if at("press"):
+        parts.append("%d hPa" % round(at("press")))
+    if at("vento") is not None:
+        parts.append("vento %d km/h" % round(at("vento")))
+    if at("att") is not None:
+        parts.append("Attività %d, %s" % (at("att"), _b5_index_word(at("att"))))
+    return " · ".join(parts)
 
 
 def _b5_trip_times(trip, now):
@@ -10364,12 +11185,625 @@ def _b5_day_label(iso, full=False, year=None):
     return _b5_fmt_date(d)
 
 
+# ---- esche e indice in parole ---------------------------------------------------------------------------------------
+# Modi diversi di scrivere la stessa esca (lettere minuscole, senza spazi né segni) -> nome di B5_LURES.
+_B5_LURE_ALIASES = {"texas": "Texas rig", "trig": "Texas rig", "spinner": "Spinnerbait", "ds": "Drop shot",
+                    "crank": "Crankbait", "chatter": "Chatterbait", "jerk": "Jerkbait", "wacky": "Wacky rig",
+                    "ned": "Ned rig", "carolina": "Carolina rig", "crig": "Carolina rig", "free": "Free rig",
+                    "rana": "Frog", "walking": "Walking bait", "walk": "Walking bait", "swim": "Swimbait"}
+
+
+def _b5_lure_key(text):
+    return _b5_re.sub(r"[^a-z]", "", str(text or "").lower())
+
+
+def _b5_lure_name(text):
+    """Esca in forma unica per i conti: il nome di B5_LURES se la riconosce ("texas", "T-rig", "Spinner bait",
+    "jig 10g"), altrimenti il testo pulito con l'iniziale maiuscola; "" se vuota."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    key = _b5_lure_key(t)
+    by_key = {_b5_lure_key(n): n for n in B5_LURES}
+    if key in by_key or key in _B5_LURE_ALIASES:
+        return by_key.get(key) or _B5_LURE_ALIASES[key]
+    first = _b5_lure_key(t.split()[0])
+    for name in B5_LURES:                           # "jig 10g" -> Jig
+        if len(first) >= 3 and first == _b5_lure_key(name.split()[0]):
+            return name
+    return _B5_LURE_ALIASES.get(first) or t[0].upper() + t[1:]
+
+
+def _b5_lure_lists(trips):
+    """(ultime esche usate, al massimo B5_LURE_CHIPS, completate con le più comuni; tutte le esche da proporre)."""
+    used = []
+    for t in sorted(trips, key=lambda t: (t["data"], t["inizio"]), reverse=True):
+        for c in reversed(t["catture"]):
+            name = _b5_lure_name(c["esca"])
+            if name and name not in used:
+                used.append(name)
+    every = used + [n for n in B5_LURES if n not in used]
+    return every[:B5_LURE_CHIPS], every[B5_LURE_CHIPS:]
+
+
+def _b5_index_word(value):
+    """Indice 0-100 in parole (soglie del Blocco 2: sotto 15 nessuna finestra buona, sotto 30 finestra scarsa)."""
+    v = _b5_f(value, None)
+    return "" if v is None else next(w for lim, w in B5_INDEX_WORDS if v < lim)
+
+
+# ---- scheda della cattura e modifica dell'uscita (componente) -------------------------------------------------------
+# I campi standard di Streamlit davano problemi al telefono: tastierino senza virgola, pulsanti − e + piccoli, e a ogni
+# campo confermato il cassetto si ridisegnava (tastiera chiusa, pagina che salta). Qui i campi sono del browser: ora e
+# giorno con il selettore del telefono, peso e lunghezza con il tastierino numerico (inputmode decimal: c'è la virgola),
+# esca a pulsanti (ultime usate e le più comuni, "Altre…" per tutte e per scriverne una nuova). Mentre si scrive non
+# parte niente; a Python arriva un solo valore al tocco di "Fatto" o "Salva". Due modi: "catture" (uscita in corso:
+# orari delle catture toccabili e scheda sotto, trigger "cattura") e "uscita" (cassetto di modifica: giorno, orari,
+# catture una alla volta, acqua, note; trigger "salva"). Quello che si è scritto resta in window.__b5scheda[key] se la
+# pagina si ridisegna; se i dati non cambiano il componente non si ridisegna (il campo in cui si scrive resta attivo).
+_B5_SCHEDA_CSS = """
+.st-key-b5_scheda_live,[class*="st-key-b5_scheda_u"]{width:100%}
+.b5s{display:flex;flex-direction:column;gap:12px;color-scheme:dark;font-size:16px}
+.b5s:empty{display:none}
+.b5s-l{display:block;margin-bottom:4px;color:rgba(242,242,247,.75);font-size:14px}
+.b5s-f{display:block;min-width:0}
+.b5s-box{display:flex;align-items:center;height:44px;padding:0 10px;border:1px solid rgba(242,242,247,.2);
+  border-radius:8px;background:#141418}
+.b5s-box:focus-within{border-color:var(--st-primary-color,#0fa874)}
+.b5s-in{flex:1;min-width:0;width:100%;height:100%;padding:0;border:0;outline:0;background:transparent;color:#F2F2F7;
+  font:inherit;font-size:16px;font-variant-numeric:tabular-nums}
+.b5s-in::placeholder{color:rgba(242,242,247,.35)}
+.b5s-u{flex:none;margin-left:4px;color:rgba(242,242,247,.55);font-size:14px}
+textarea.b5s-in{height:auto;min-height:72px;padding:10px 0;resize:vertical;line-height:1.4}
+.b5s-area{height:auto}
+.b5s-row{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:8px}
+.b5s-row2{grid-template-columns:1fr 1fr}
+.b5s-chips{display:flex;flex-wrap:wrap;gap:6px}
+.b5s-chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;margin:0;padding:0 12px;
+  border:1px solid rgba(242,242,247,.2);border-radius:999px;background:transparent;color:#F2F2F7;font:inherit;
+  font-size:15px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.b5s-chip[aria-pressed="true"],.b5s-chip[aria-expanded="true"]{border-color:var(--st-primary-color,#0fa874);
+  background:rgba(15,168,116,.18)}
+.b5s-chip svg{flex:none;color:rgba(242,242,247,.6)}
+.b5s-more{color:rgba(242,242,247,.7);border-style:dashed}
+.b5s-lures{display:flex;flex-direction:column;gap:8px}
+.b5s-sheet{display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid rgba(242,242,247,.16);
+  border-radius:12px;background:rgba(242,242,247,.04);container-type:inline-size}
+@container (max-width:280px){.b5s-row:not(.b5s-row2){grid-template-columns:1fr 1fr}
+  .b5s-row:not(.b5s-row2)>:first-child{grid-column:1/-1}}
+.b5s-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px;margin-bottom:-4px}
+.b5s-head span{color:rgba(242,242,247,.55);font-size:14px}
+.b5s-tip:empty{display:none}
+.b5s-link{margin:0;padding:0;border:0;background:none;color:var(--st-primary-color,#0fa874);font:inherit;
+  font-size:14px;text-align:left;cursor:pointer}
+.b5s-warn,.b5s-note{color:rgba(242,242,247,.6);font-size:14px;line-height:1.4}
+.b5s-warn{color:#E3B04B}
+.b5s-note{margin:-6px 0 0}
+.b5s-err{margin:0;padding:10px 12px;border-radius:8px;background:rgba(255,92,92,.12);color:#FF8A8A;font-size:14px;
+  line-height:1.4}
+.b5s-actions{display:flex;gap:8px}
+.b5s-btn{flex:1;min-height:44px;margin:0;padding:0 12px;border:1px solid rgba(242,242,247,.2);border-radius:8px;
+  background:transparent;color:#F2F2F7;font:inherit;font-size:16px;cursor:pointer}
+.b5s-primary{border-color:var(--st-primary-color,#0fa874);background:var(--st-primary-color,#0fa874);color:#fff;
+  font-weight:600}
+.b5s-del{flex:0 0 auto;color:rgba(242,242,247,.75)}
+.b5s-armed{border-color:#FF8A8A;color:#FF8A8A}
+.b5s-btn:disabled,.b5s-chip:disabled{opacity:.5;cursor:progress}
+.b5s-list{display:flex;flex-direction:column;gap:6px}
+.b5s-item{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;margin:0;padding:0 12px;
+  border:1px solid rgba(242,242,247,.16);border-radius:10px;background:transparent;color:#F2F2F7;font:inherit;
+  text-align:left;cursor:pointer}
+.b5s-item b{font-weight:600;font-variant-numeric:tabular-nums}
+.b5s-item span{flex:1;min-width:0;overflow:hidden;color:rgba(242,242,247,.65);font-size:14px;text-overflow:ellipsis;
+  white-space:nowrap}
+.b5s-item i{font-style:normal;color:rgba(242,242,247,.45);font-size:20px}
+.b5s-add{border-style:dashed;color:rgba(242,242,247,.8)}
+.b5s-place{display:flex;align-items:center;gap:6px;margin:0;color:rgba(242,242,247,.65);font-size:14px}
+.b5s-sel{margin:6px 0 0}
+.b5s-find{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.b5s-findrow{display:flex;gap:8px}
+.b5s-findrow .b5s-box{flex:1;min-width:0}
+.b5s-go{flex:none;padding:0 16px}
+.b5s-det{display:flex;flex-direction:column;gap:12px}
+.b5s-det[hidden]{display:none}
+.b5s-spotrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.b5s-spot-t{flex:1 1 100%;color:rgba(242,242,247,.6);font-size:14px}
+.b5s-spot-t.b5s-on{color:var(--st-primary-color,#0fa874);font-weight:600}
+.b5s-rm{flex:none}
+.b5s-mapbox{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.b5s-mapbox[hidden]{display:none}
+.b5s-frame{position:relative;height:220px;border:1px solid rgba(242,242,247,.2);border-radius:8px;overflow:hidden;
+  isolation:isolate}
+.b5s-map{position:absolute;inset:0;background:#1c1c1f}
+.b5s-map.leaflet-container{font:inherit;font-size:12px}
+.b5s-pin{position:absolute;left:50%;top:50%;width:28px;height:38px;margin:-37px 0 0 -14px;pointer-events:none;
+  z-index:1000;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}
+"""
+_B5_SCHEDA_JS = r"""
+const KG = (cm) => Math.pow(10, -5.316 + 3.191 * Math.log10(cm * 10)) / 1000;   // peso tipico (relazione L-P)
+const num = (s) => {
+  const t = String(s == null ? "" : s).replace(/\s/g, "").replace(",", ".");
+  if (!t) return null;
+  const v = Number(t);
+  return Number.isFinite(v) ? v : NaN;
+};
+const it = (v, nd) => {
+  if (v == null || v === "" || !Number.isFinite(Number(v))) return "";
+  let s = Number(v).toFixed(nd);
+  if (nd > 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+  return s.replace(".", ",");
+};
+const low = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+const FISH = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 12c-2.2 3.4-5.2 5.2-8.6 5.2-2.6 ' +
+  '0-4.9-1-6.9-3.1L2.5 17V7L6 9.9C8 7.8 10.3 6.8 12.9 6.8c3.4 0 6.4 1.8 8.6 5.2z"/></svg>';
+const PIN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 ' +
+  '0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>';
+const MAPI = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 ' +
+  '4zM9 4v14M15 6v14"/></svg>';
+const PINBIG = '<svg viewBox="0 0 28 38" width="28" height="38" aria-hidden="true"><path d="M14 1C7 1 1.5 6.5 1.5 ' +
+  '13.4 1.5 23 14 37 14 37s12.5-14 12.5-23.6C26.5 6.5 21 1 14 1z" fill="#0fa874" stroke="#fff" stroke-width="2"/>' +
+  '<circle cx="14" cy="13.5" r="4.5" fill="#fff"/></svg>';
+
+function leaflet(cfg) {                       // una sola volta per pagina (stessa promessa del cassetto Località)
+  if (window.L && window.L.map) return Promise.resolve(window.L);
+  if (!window.__b5Leaflet) {
+    window.__b5Leaflet = new Promise((ok, ko) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet"; css.href = cfg.base + "leaflet.css"; css.integrity = cfg.css; css.crossOrigin = "";
+      document.head.appendChild(css);
+      const js = document.createElement("script");
+      js.src = cfg.base + "leaflet.js"; js.integrity = cfg.js; js.crossOrigin = "";
+      js.onload = () => (window.L ? ok(window.L) : ko());
+      js.onerror = () => { window.__b5Leaflet = null; js.remove(); ko(); };
+      document.head.appendChild(js);
+    });
+  }
+  return window.__b5Leaflet;
+}
+
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k === "html") e.innerHTML = v;                 // solo icone scritte qui sopra
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c);
+  return e;
+}
+const field = (label, input, unit, cls) => h("label", { class: "b5s-f" }, h("span", { class: "b5s-l", text: label }),
+  h("span", { class: "b5s-box" + (cls ? " " + cls : "") }, input, unit ? h("span", { class: "b5s-u", text: unit }) : null));
+
+// Scheda di una cattura: ora, peso, lunghezza, esca; "Fatto" controlla i valori, "Elimina" chiede conferma.
+function catchSheet(c, ctx) {
+  const v = Object.assign({ ora: c.ora || "", kg: c.kg == null ? "" : it(c.kg, 2), cm: c.cm == null ? "" : it(c.cm, 0),
+    esca: c.esca || "", all: false, nota: c.nota || "", det: !!c.nota, spot: c.spot || null }, ctx.draft || {});
+  const keep = () => ctx.onDraft(Object.assign({}, v));
+  const err = h("p", { class: "b5s-err", role: "alert", hidden: true });
+  const say = (t) => { err.textContent = t || ""; err.hidden = !t; };
+  const tip = h("div", { class: "b5s-tip" });
+  const ora = h("input", { class: "b5s-in", type: "time", value: v.ora, "aria-label": "Ora della cattura" });
+  const kg = h("input", { class: "b5s-in", type: "text", inputmode: "decimal", placeholder: "0,00", value: v.kg,
+    autocomplete: "off", enterkeyhint: "next", "aria-label": "Peso in chili" });
+  const cm = h("input", { class: "b5s-in", type: "text", inputmode: "numeric", placeholder: "0", value: v.cm,
+    autocomplete: "off", enterkeyhint: "done", "aria-label": "Lunghezza in centimetri" });
+  const hint = () => {
+    tip.replaceChildren();
+    const l = num(v.cm), w = num(v.kg);
+    if (!(l >= 15 && l <= 80)) return;
+    const e = KG(l);
+    if (w == null) {
+      tip.append(h("button", { type: "button", class: "b5s-link", onclick: () => {
+        v.kg = it(Math.round(e * 20) / 20, 2); kg.value = v.kg; hint(); keep(); } },
+        "Circa " + it(e, 1) + " kg per " + it(l, 0) + " cm: tocca per usarlo"));
+    } else if (w > 0 && (w > e * 1.6 || w < e * 0.55)) {
+      tip.append(h("span", { class: "b5s-warn", text: it(w, 2) + " kg per " + it(l, 0) + " cm è insolito (di solito " +
+        "circa " + it(e, 1) + " kg): controlla." }));
+    }
+  };
+  ora.addEventListener("input", () => { v.ora = ora.value; keep(); });
+  kg.addEventListener("input", () => { v.kg = kg.value; hint(); keep(); say(""); });
+  cm.addEventListener("input", () => { v.cm = cm.value; hint(); keep(); say(""); });
+  kg.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); cm.focus(); } });
+  cm.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); cm.blur(); } });
+
+  const lures = h("div", { class: "b5s-lures" });
+  const other = h("input", { class: "b5s-in", type: "text", placeholder: "Scrivi un'altra esca", maxlength: "60",
+    autocomplete: "off", "aria-label": "Altra esca" });
+  other.addEventListener("input", () => {
+    v.esca = other.value.trim();
+    lures.querySelectorAll(".b5s-chip[aria-pressed]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(!!v.esca && low(b.textContent) === low(v.esca))));
+    keep();
+  });
+  const drawLures = () => {
+    const cur = low(v.esca);
+    const known = ctx.recent.concat(ctx.lures);
+    const first = ctx.recent.slice();
+    const custom = cur && !known.some((n) => low(n) === cur);
+    if (custom && !v.all) first.unshift(v.esca);
+    const chip = (n) => h("button", { type: "button", class: "b5s-chip", "aria-pressed": String(!!cur && low(n) === cur),
+      onclick: () => { v.esca = low(n) === low(v.esca) ? "" : n; other.value = ""; drawLures(); keep(); } }, n);
+    other.value = custom && v.all ? v.esca : "";
+    const rows = [h("div", { class: "b5s-chips", role: "group", "aria-label": "Esche usate di recente" }, first.map(chip),
+      v.all ? null : h("button", { type: "button", class: "b5s-chip b5s-more", onclick: () => {
+        v.all = true; drawLures(); keep(); } }, "Altre…"))];
+    if (v.all) rows.push(h("div", { class: "b5s-chips", role: "group", "aria-label": "Altre esche" }, ctx.lures.map(chip)),
+      h("span", { class: "b5s-box" }, other));
+    lures.replaceChildren(...rows);
+  };
+
+  // nota della cattura, facoltativa: il campo compare toccando "+ Aggiungi una nota" (aperto se c'è già)
+  const note = h("input", { class: "b5s-in", type: "text", placeholder: "es. mangiata in caduta, sotto i rami",
+    maxlength: "300", value: v.nota, autocomplete: "off", "aria-label": "Nota sulla cattura" });
+  note.addEventListener("input", () => { v.nota = note.value; keep(); });
+  const more = h("div", { class: "b5s-det", hidden: !v.det }, field("Nota", note));
+  const tog = h("button", { type: "button", class: "b5s-link", hidden: v.det }, "+ Aggiungi una nota");
+  tog.addEventListener("click", () => { v.det = true; more.hidden = false; tog.hidden = true; keep(); note.focus(); });
+
+  // spot della cattura (facoltativo): "Qui" con il GPS del telefono quando sei sul posto, "Mappa" per scegliere il punto
+  // (anche per un'uscita passata o per correggere il GPS). Le coordinate restano nel diario: mai nell'immagine condivisa.
+  const spotTxt = h("span", { class: "b5s-spot-t" });
+  const rm = h("button", { type: "button", class: "b5s-link b5s-rm" }, "Togli");
+  const gps = h("button", { type: "button", class: "b5s-chip", html: PIN }, "Qui");
+  const onMap = h("button", { type: "button", class: "b5s-chip", html: MAPI }, "Mappa");
+  const mapEl = h("div", { class: "b5s-map" });
+  const use = h("button", { type: "button", class: "b5s-btn b5s-primary" }, "Usa questo punto");
+  const mapBox = h("div", { class: "b5s-mapbox", hidden: true },
+    h("span", { class: "b5s-note", text: "Sposta la mappa finché il segnaposto è sul punto, oppure tocca il punto." }),
+    h("div", { class: "b5s-frame" }, mapEl, h("div", { class: "b5s-pin", html: PINBIG })), use);
+  let map = null;
+  const drawSpot = () => {
+    spotTxt.textContent = v.spot ? "Spot segnato" + (v.spot.acc ? " · ±" + v.spot.acc + " m" : "") : "Nessuno spot";
+    spotTxt.classList.toggle("b5s-on", !!v.spot);
+    rm.hidden = !v.spot;
+  };
+  gps.addEventListener("click", () => {
+    say("");
+    const policy = document.permissionsPolicy || document.featurePolicy;
+    if (!window.isSecureContext || !navigator.geolocation ||
+        (policy && policy.allowsFeature && !policy.allowsFeature("geolocation"))) {
+      say("Qui la posizione del telefono non si può leggere: scegli il punto sulla mappa.");
+      return;
+    }
+    gps.disabled = true;
+    spotTxt.textContent = "Cerco la posizione…";
+    let done = false;
+    const fail = (code) => {
+      if (done) return;
+      done = true; gps.disabled = false; drawSpot();
+      say(code === 1 ? "Permesso negato: consenti la posizione a questo sito, oppure usa la mappa."
+                     : "Posizione non disponibile: riprova all'aperto, oppure usa la mappa.");
+    };
+    const watchdog = setTimeout(() => fail(3), 25000);
+    navigator.geolocation.getCurrentPosition((p) => {
+      if (done) return;
+      done = true; clearTimeout(watchdog); gps.disabled = false;
+      v.spot = { lat: Number(p.coords.latitude.toFixed(5)), lon: Number(p.coords.longitude.toFixed(5)),
+                 acc: Math.round(p.coords.accuracy || 0) || null };
+      drawSpot(); keep();
+    }, (e) => { clearTimeout(watchdog); fail(e && e.code); }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+  });
+  onMap.addEventListener("click", () => {
+    mapBox.hidden = !mapBox.hidden;
+    if (mapBox.hidden) return;
+    if (map) { map.invalidateSize(); return; }
+    const cfg = ctx.map || {};
+    leaflet(cfg.leaflet).then((L) => {
+      if (map || !mapEl.isConnected) return;
+      const c0 = v.spot || { lat: cfg.lat, lon: cfg.lon };
+      map = L.map(mapEl).setView([c0.lat, c0.lon], v.spot ? 16 : 13);
+      map.attributionControl.setPrefix(false);
+      L.tileLayer(cfg.tiles, { maxZoom: 19, attribution: cfg.attr }).addTo(map);
+      map.on("click", (e) => map.panTo(e.latlng));
+      new ResizeObserver(() => map && map.invalidateSize()).observe(mapEl);
+    }).catch(() => say("Mappa non disponibile: controlla la connessione e riprova."));
+  });
+  use.addEventListener("click", () => {
+    if (!map) return;
+    const c2 = map.getCenter().wrap();
+    v.spot = { lat: Number(c2.lat.toFixed(5)), lon: Number(c2.lng.toFixed(5)), acc: null };
+    mapBox.hidden = true; drawSpot(); keep();
+  });
+  rm.addEventListener("click", () => { v.spot = null; drawSpot(); keep(); });
+  const spotBox = h("div", { class: "b5s-spot" }, h("span", { class: "b5s-l", text: "Spot" }),
+    h("div", { class: "b5s-spotrow" }, spotTxt, gps, onMap, rm), mapBox);
+  drawSpot();
+
+  let armed = false;
+  const del = h("button", { type: "button", class: "b5s-btn b5s-del" }, "Elimina");
+  del.addEventListener("click", () => {
+    if (!armed) { armed = true; del.textContent = "Tocca ancora per eliminare"; del.classList.add("b5s-armed"); return; }
+    ctx.onDelete();
+  });
+  const read = () => {
+    if (!v.ora) return { err: "Manca l'ora della cattura." };
+    if (ctx.min && v.ora < ctx.min) return { err: "L'ora è prima dell'inizio dell'uscita (" + ctx.min + ")." };
+    if (ctx.max && v.ora > ctx.max) return { err: "L'ora è dopo la fine dell'uscita (" + ctx.max + ")." };
+    const w = num(v.kg), l = num(v.cm);
+    if (Number.isNaN(w) || (w != null && (w <= 0 || w > 10))) return { err: "Peso non valido: scrivilo in chili, per esempio 1,25." };
+    if (Number.isNaN(l) || (l != null && (l < 10 || l > 80))) return { err: "Lunghezza non valida: scrivila in centimetri, per esempio 42." };
+    return { val: { ora: v.ora, kg: w == null ? null : Math.round(w * 100) / 100,
+      cm: l == null ? null : Math.round(l * 10) / 10, esca: String(v.esca || "").trim().slice(0, 60),
+      nota: String(v.nota || "").trim().slice(0, 300), spot: v.spot || null } };
+  };
+  const done = h("button", { type: "button", class: "b5s-btn b5s-primary" }, "Fatto");
+  done.addEventListener("click", () => { const r = read(); if (r.err) { say(r.err); return; } ctx.onDone(r.val); });
+  hint();
+  drawLures();
+  const el = h("div", { class: "b5s-sheet" },
+    h("div", { class: "b5s-row" }, field("Ora", ora), field("Peso", kg, "kg"), field("Lunghezza", cm, "cm")), tip,
+    h("div", {}, h("span", { class: "b5s-l", text: "Esca" }), lures), spotBox, tog, more, err,
+    h("div", { class: "b5s-actions" }, del, done));
+  return { el, read, say };
+}
+
+const same = (c, v) => c.ora === v.ora && (c.kg ?? null) === v.kg && (c.cm ?? null) === v.cm &&
+  (c.esca || "") === v.esca && (c.nota || "") === v.nota && JSON.stringify(c.spot || null) === JSON.stringify(v.spot);
+const label = (c) => [c.kg ? it(c.kg, 2) + " kg" : "", c.cm ? it(c.cm, 0) + " cm" : "", c.esca || "",
+  c.spot ? "spot" : ""].filter(Boolean).join(" · ");
+
+// Uscita in corso: orari delle catture come pulsanti; toccandone uno la sua scheda si apre sotto.
+function liveMode(d, S, root, send) {
+  const t = d.trip;
+  const draw = () => {
+    if (!t.catture.length) { root.replaceChildren(); return; }
+    const parts = [h("div", { class: "b5s-chips", role: "group", "aria-label": "Catture: tocca per peso ed esca" },
+      t.catture.map((c) => h("button", { type: "button", class: "b5s-chip", "aria-expanded": String(S.open === c.id),
+        onclick: () => { S.open = S.open === c.id ? null : c.id; draw(); } },
+        h("span", { html: FISH }), c.ora + (c.kg ? " · " + it(c.kg, 2) + " kg" : c.cm ? " · " + it(c.cm, 0) + " cm" : ""))))];
+    const c = t.catture.find((x) => x.id === S.open);
+    if (c) {
+      const sheet = catchSheet(c, { recent: d.recent, lures: d.lures, map: d.map, min: t.inizio, max: null, draft: S.drafts[c.id],
+        onDraft: (v) => { S.drafts[c.id] = v; },
+        onDone: (val) => {
+          if (same(c, val)) { S.open = null; draw(); return; }
+          root.querySelectorAll("button,input").forEach((e) => { e.disabled = true; });
+          send("cattura", Object.assign({ id: c.id }, val));
+        },
+        onDelete: () => {
+          root.querySelectorAll("button,input").forEach((e) => { e.disabled = true; });
+          send("cattura", { id: c.id, elimina: true });
+        } });
+      parts.push(h("div", { class: "b5s-head" }, h("b", { text: "Cattura delle " + c.ora }),
+        h("span", { text: "peso, lunghezza ed esca, se vuoi" })), sheet.el);
+    }
+    root.replaceChildren(...parts);
+  };
+  draw();
+}
+
+// Modifica o nuova uscita: lago (solo nuova), giorno, orari, catture una alla volta, acqua misurata, note, Salva.
+function tripMode(d, S, root, send) {
+  const t = d.trip;
+  const f = S.form || (S.form = { data: t.data, inizio: t.inizio, fine: t.fine || "", acqua: it(t.acqua, 1),
+    nota: t.nota || "", pick: { kind: "lago", i: 0 }, q: "", find: false, searching: false, searchN: 0, open: null,
+    drafts: {}, catture: t.catture.map((c) => Object.assign({}, c)) });
+  if (d.search_n !== f.searchN) {              // risultati nuovi della ricerca: la ricerca resta aperta con l'elenco
+    f.searchN = d.search_n; f.searching = false;
+    if ((d.found || []).length || d.found_msg) f.find = true;
+  }
+  const selLake = () => (f.pick.kind === "nuovo" ? (d.places || [])[f.pick.i] : (d.lakes || [])[f.pick.i]) || null;
+  let sheet = null;
+  const err = h("p", { class: "b5s-err", role: "alert", hidden: !d.err, text: d.err || "" });
+  const say = (m) => { err.textContent = m || ""; err.hidden = !m; if (m) err.scrollIntoView({ block: "nearest" }); };
+  const commit = () => {                     // chiude la scheda aperta tenendo i valori, se sono validi
+    if (!sheet) return true;
+    const r = sheet.read();
+    if (r.err) { sheet.say(r.err); return false; }
+    Object.assign(f.catture.find((x) => x.id === f.open), r.val);
+    delete f.drafts[f.open];
+    f.open = null;
+    return true;
+  };
+  const draw = () => {
+    sheet = null;
+    const parts = [];
+    // lago: quelli del diario a pulsanti; "+ Altro lago" cerca per nome (anche scritto male) o per paese vicino
+    const sel = selLake();
+    const chips = (d.lakes || []).map((l, i) => h("button", { type: "button", class: "b5s-chip",
+      "aria-pressed": String(f.pick.kind === "lago" && f.pick.i === i),
+      onclick: () => { f.pick = { kind: "lago", i }; f.find = false; draw(); } }, l.name));
+    if (f.pick.kind === "nuovo" && (d.places || [])[f.pick.i]) {
+      chips.unshift(h("button", { type: "button", class: "b5s-chip", "aria-pressed": "true" }, d.places[f.pick.i].name));
+    }
+    if (!f.find) {
+      chips.push(h("button", { type: "button", class: "b5s-chip b5s-more", onclick: () => {
+        f.find = true; draw(); const i = root.querySelector(".b5s-find input"); if (i) i.focus(); } }, "+ Altro lago"));
+    }
+    const lakeBox = h("div", {}, h("span", { class: "b5s-l", text: "Lago" }), h("div", { class: "b5s-chips" }, chips));
+    if (sel && sel.sub) lakeBox.append(h("p", { class: "b5s-note b5s-sel", text: sel.name + " · " + sel.sub }));
+    if (f.find) {
+      const q = h("input", { class: "b5s-in", type: "search", placeholder: "Nome del lago o paese vicino", value: f.q || "",
+        autocomplete: "off", enterkeyhint: "search", "aria-label": "Cerca un lago o un paese" });
+      q.addEventListener("input", () => { f.q = q.value; });
+      const go = h("button", { type: "button", class: "b5s-btn b5s-primary b5s-go", disabled: f.searching },
+        f.searching ? "Cerco…" : "Cerca");
+      const run = () => {
+        const v = String(f.q || "").trim();
+        if (v.length < 2) { say("Scrivi almeno due lettere del lago o del paese."); return; }
+        f.searching = true; go.disabled = true; go.textContent = "Cerco…";
+        send("cerca", { q: v, n: Date.now() });
+      };
+      go.addEventListener("click", run);
+      q.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+      const box = h("div", { class: "b5s-find" }, h("div", { class: "b5s-findrow" }, h("span", { class: "b5s-box" }, q), go));
+      if (d.found_msg) box.append(h("p", { class: "b5s-note", text: d.found_msg }));
+      if ((d.found || []).length) {
+        box.append(h("div", { class: "b5s-list" }, d.found.map((k) => {
+          const pl = d.places[k];
+          return h("button", { type: "button", class: "b5s-item", onclick: () => {
+            f.pick = { kind: "nuovo", i: k }; f.find = false; draw(); } },
+            h("b", { text: pl.name }), h("span", { text: pl.sub || "" }), h("i", { text: "›" }));
+        })));
+      }
+      box.append(h("button", { type: "button", class: "b5s-link", onclick: () => { f.find = false; draw(); } },
+        "Chiudi la ricerca"));
+      lakeBox.append(box);
+    }
+    parts.push(lakeBox);
+    const day = h("input", { class: "b5s-in", type: "date", value: f.data, min: d.min, max: d.today, "aria-label": "Giorno" });
+    const t0 = h("input", { class: "b5s-in", type: "time", value: f.inizio, "aria-label": "Inizio" });
+    const t1 = h("input", { class: "b5s-in", type: "time", value: f.fine, "aria-label": "Fine" });
+    day.addEventListener("input", () => { f.data = day.value; });
+    t0.addEventListener("input", () => { f.inizio = t0.value; });
+    t1.addEventListener("input", () => { f.fine = t1.value; });
+    parts.push(field("Giorno", day), h("div", { class: "b5s-row b5s-row2" }, field("Inizio", t0), field("Fine", t1)));
+    if (d.open_end) parts.push(h("p", { class: "b5s-note", text: "Lascia vuota la fine se stai ancora pescando." }));
+    const list = h("div", { class: "b5s-list" });
+    f.catture.forEach((c) => {
+      if (f.open === c.id) {
+        sheet = catchSheet(c, { recent: d.recent, lures: d.lures, min: f.inizio || null, max: f.fine || null,
+          map: Object.assign({}, d.map, sel ? { lat: sel.lat, lon: sel.lon } : {}),
+          draft: f.drafts[c.id], onDraft: (v) => { f.drafts[c.id] = v; },
+          onDone: (val) => { Object.assign(c, val); delete f.drafts[c.id]; f.open = null; draw(); },
+          onDelete: () => { f.catture = f.catture.filter((x) => x !== c); delete f.drafts[c.id]; f.open = null; draw(); } });
+        list.append(sheet.el);
+      } else {
+        list.append(h("button", { type: "button", class: "b5s-item", onclick: () => { if (commit()) { f.open = c.id; draw(); } } },
+          h("b", { text: c.ora }), h("span", { text: label(c) || "tocca per peso ed esca" }), h("i", { text: "›" })));
+      }
+    });
+    list.append(h("button", { type: "button", class: "b5s-item b5s-add", onclick: () => {
+      if (!commit()) return;
+      const last = f.catture.length ? f.catture[f.catture.length - 1].ora : f.inizio;
+      const c = { id: Math.random().toString(16).slice(2, 14), ora: (d.open_end && f.data === d.today) ? d.now : last,
+        kg: null, cm: null, esca: "", nota: "" };
+      f.catture.push(c);
+      f.open = c.id;
+      draw();
+    } }, "+ Aggiungi una cattura"));
+    parts.push(h("div", {}, h("span", { class: "b5s-l", text: f.catture.length ? "Catture · " + f.catture.length :
+      "Catture · nessuna (cappotto)" }), list));
+    const water = h("input", { class: "b5s-in", type: "text", inputmode: "decimal", placeholder: "non misurata",
+      value: f.acqua, autocomplete: "off", "aria-label": "Acqua misurata" });
+    water.addEventListener("input", () => { f.acqua = water.value; });
+    const note = h("textarea", { class: "b5s-in", rows: "3", maxlength: "1000", placeholder: "Spot, esche, cosa ha funzionato…",
+      "aria-label": "Note" });
+    note.value = f.nota;
+    note.addEventListener("input", () => { f.nota = note.value; });
+    parts.push(field("Acqua misurata", water, "°C"), field("Note", note, null, "b5s-area"));
+    const save = h("button", { type: "button", class: "b5s-btn b5s-primary" }, "Salva");
+    save.addEventListener("click", () => {
+      if (!commit()) return;
+      const w = num(f.acqua);
+      const bad = (m) => { draw(); say(m); };
+      if (!f.data) return bad("Manca il giorno.");
+      if (f.data > d.today) return bad("Il giorno è nel futuro.");
+      if (f.data < d.min) return bad("Il giorno è troppo lontano.");
+      if (!f.inizio) return bad("Manca l'ora di inizio.");
+      if (!f.fine && !(d.open_end && f.data === d.today)) return bad("Manca l'ora di fine.");
+      if (f.fine && f.fine <= f.inizio) return bad("La fine deve venire dopo l'inizio (le uscite oltre la mezzanotte non sono previste).");
+      if (f.data === d.today && f.inizio > d.now) return bad("L'inizio è più tardi di adesso.");
+      const out = f.catture.find((c) => c.ora < f.inizio || (f.fine && c.ora > f.fine));
+      if (out) return bad("La cattura delle " + out.ora + " è fuori dall'orario dell'uscita.");
+      if (Number.isNaN(w) || (w != null && (w < 0 || w > 38))) return bad("Acqua misurata non valida: scrivila in gradi, per esempio 14,5.");
+      root.querySelectorAll("button,input,textarea").forEach((e) => { e.disabled = true; });
+      send("salva", { data: f.data, inizio: f.inizio, fine: f.fine || null, acqua: w, nota: f.nota.trim(), lake: f.pick,
+        catture: f.catture.map((c) => ({ id: c.id, ora: c.ora, kg: c.kg ?? null, cm: c.cm ?? null, esca: c.esca || "",
+          nota: c.nota || "", spot: c.spot || null })) });
+    });
+    parts.push(err, save);
+    root.replaceChildren(...parts);
+  };
+  draw();
+}
+
+export default function ({ data, parentElement, setTriggerValue }) {
+  const d = data || {};
+  const all = window.__b5scheda || (window.__b5scheda = {});
+  const S = all[d.key] || (all[d.key] = { sig: null, open: null, drafts: {}, buzzed: null, seen: null });
+  // nei dati che fanno ridisegnare ci sono anche i risultati della ricerca dei laghi (search_n cambia a ogni ricerca)
+  const sig = JSON.stringify([d.trip, d.err || "", d.lakes || [], d.recent, d.search_n || 0, d.found || []]);
+  let root = parentElement.querySelector(":scope > .b5s");
+  if (root && root.dataset.sig === sig) return;      // stessi dati: niente ridisegno, il campo attivo resta attivo
+  if (!root) { root = h("div", { class: "b5s" }); parentElement.appendChild(root); }
+  if (d.mode === "catture") {
+    if (S.sig !== sig) { S.drafts = {}; S.open = d.open || null; }
+    else if (d.open && d.open !== S.seen) S.open = d.open;
+    S.seen = d.open || null;
+    if (d.buzz && d.buzz !== S.buzzed) {             // cattura appena segnata: una vibrazione breve (Android)
+      S.buzzed = d.buzz;
+      try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) { /* niente vibrazione */ }
+    }
+  }
+  S.sig = sig;
+  root.dataset.sig = sig;
+  (d.mode === "catture" ? liveMode : tripMode)(d, S, root, setTriggerValue);
+}
+"""
+
+
+def _b5_scheda_catches(catches):
+    """Catture per la scheda, con l'esca nel nome unico ("T-rig" -> "Texas rig"): la scheda la mostra già scelta tra i
+    pulsanti e, salvando, l'uscita la tiene così."""
+    return [dict(c, esca=_b5_lure_name(c["esca"])) for c in catches]
+
+
+def _b5_scheda(key, data, trigger):
+    """Componente della scheda -> (valore del trigger in questo giro o None, True se il componente c'è). Con più
+    trigger (tupla di nomi) il primo valore è un dict {nome: valore}."""
+    names = (trigger,) if isinstance(trigger, str) else tuple(trigger)
+    try:
+        from streamlit.components import v2 as components_v2
+        comp = components_v2.component("b5_scheda", css=_B5_SCHEDA_CSS, js=_B5_SCHEDA_JS, isolate_styles=False)
+        res = comp(key=key, data=data, **{"on_%s_change" % t: (lambda: None) for t in names})
+    except Exception:
+        return ({} if not isinstance(trigger, str) else None), False
+    vals = {t: (res.get(t) if hasattr(res, "get") else None) for t in names}
+    return (vals[trigger] if isinstance(trigger, str) else vals), True
+
+
+def _b5_diary_places():
+    """Laghi del diario già aperto in questa sessione, dal più recente, senza quello in uso (cassetto Località)."""
+    ss = st.session_state
+    diary = ss.get("b5_diary")
+    if not isinstance(diary, dict):
+        return []
+    here = str((ss.get("b5_loc") or {}).get("name") or "")
+    out, names = [], {here}
+    for t in sorted(diary["uscite"], key=lambda t: (t["data"], t["inizio"]), reverse=True):
+        if t["luogo"]["name"] not in names:
+            names.add(t["luogo"]["name"])
+            out.append(dict(t["luogo"]))
+    return out[:6]
+
+
+def _b5_cb_mylake(key, places):
+    """Tocco su un lago del diario nel cassetto Località: diventa la località e il cassetto si chiude."""
+    ss = st.session_state
+    pick = next((p for p in places if p["name"] == ss.get(key)), None)
+    if pick:
+        ss["b5_loc"] = pick
+        ss["b5_drawer_close"] = True
+
+
+def _b5_diary_lakes(trips, here):
+    """Laghi per una nuova uscita: quello scelto in alto, poi gli altri del diario dal più recente (nome unico)."""
+    out, names = [_b5_trip_place(here)], {str(here.get("name") or "")}
+    for t in sorted(trips, key=lambda t: t["data"], reverse=True):
+        if t["luogo"]["name"] not in names:
+            names.add(t["luogo"]["name"])
+            out.append(dict(t["luogo"]))
+    return out[:6]
+
+
 # ---- callback -------------------------------------------------------------------------------------------------------
 def _b5_cb_dlg(kind, tid=None):
-    """Apre un cassetto del Diario: "view" dettaglio, "edit" modifica, "new" uscita già fatta."""
+    """Apre un cassetto del Diario: "view" dettaglio, "edit" modifica, "new" uscita passata."""
     ss = st.session_state
     ss["b5_dlg"] = (kind, tid)
     ss.pop("b5_del_confirm", None)
+    ss.pop("b5_draft_err", None)
+    ss.pop("b5_draft_found", None)                  # ricerche di laghi della scheda precedente
+    ss.pop("b5_draft_places", None)
     if kind == "view":
         return
     ss["b5_draft_n"] = int(ss.get("b5_draft_n", 0)) + 1
@@ -10392,21 +11826,18 @@ def _b5_cb_start():
 
 
 def _b5_cb_catch(tid):
+    """+ Cattura: l'ora si segna subito; sotto si apre la scheda della cattura (peso, lunghezza, esca), facoltativa."""
+    ss = st.session_state
     trip = _b5_trip_get(tid)
     if not trip:
         return
+    cid = _b5_new_id()
     hhmm = _b5_now_at(trip["luogo"]).strftime("%H:%M")
-    trip = dict(trip, catture=trip["catture"] + [{"id": _b5_new_id(), "ora": hhmm, "kg": None, "cm": None,
-                                                  "esca": "", "nota": ""}])
+    trip = dict(trip, catture=trip["catture"] + [{"id": cid, "ora": hhmm, "kg": None, "cm": None, "esca": "",
+                                                  "nota": ""}])
     _b5_diary_put(trip)
-    st.session_state["b5_toast"] = ("Cattura segnata alle %s" % hhmm, ":material/check_circle:")
-
-
-def _b5_cb_catch_undo(tid):
-    trip = _b5_trip_get(tid)
-    if trip and trip["catture"]:
-        _b5_diary_put(dict(trip, catture=trip["catture"][:-1]))
-        st.session_state["b5_toast"] = ("Ultima cattura tolta", ":material/undo:")
+    ss["b5_open_catch"] = ss["b5_buzz"] = cid
+    ss["b5_pop_n"] = len(trip["catture"])           # il numero delle catture fa un piccolo salto (vedi la scheda)
 
 
 def _b5_cb_end(tid):
@@ -10422,20 +11853,19 @@ def _b5_cb_end(tid):
     trip = dict(trip, fine="%02d:%02d" % divmod(end, 60))
     _b5_diary_put(trip)
     if trip["prev"] is None:
-        ss["b5_dprev"] = tid                            # previsione mancata all'inizio: si calcola adesso
+        ss["b5_dprev"] = (tid, False)                   # previsione mancata all'inizio: si calcola adesso
     n = len(trip["catture"])
     ss["b5_toast"] = ("Uscita chiusa: %s in %s." % (_b5_count(n, "bass", "bass"), _b5_dur(end - _b5_min(trip["inizio"])))
-                      if n else "Uscita chiusa: cappotto segnato. Conta anche lui.", ":material/flag:")
+                      if n else "Uscita chiusa: cappotto segnato.", ":material/flag:")
 
 
-def _b5_cb_draft_add(default):
-    st.session_state["b5_draft"]["catture"].append({"id": _b5_new_id(), "ora": default, "kg": None, "cm": None,
-                                                    "esca": "", "nota": ""})
+def _b5_cb_mirror(widget_key, store_key):
+    """Copia la scelta di un widget in una chiave che resta anche quando il widget non è disegnato (altre sezioni)."""
+    st.session_state[store_key] = st.session_state[widget_key]
 
 
-def _b5_cb_draft_del(cid):
-    d = st.session_state["b5_draft"]
-    d["catture"] = [c for c in d["catture"] if c["id"] != cid]
+def _b5_cb_more():
+    st.session_state["b5_dlist_n"] = int(st.session_state.get("b5_dlist_n", B5_DIARY_PAGE)) + B5_DIARY_PAGE
 
 
 def _b5_cb_del_ask(tid):
@@ -10443,97 +11873,169 @@ def _b5_cb_del_ask(tid):
 
 
 # ---- pezzi della pagina ---------------------------------------------------------------------------------------------
+def _b5_season(trips):
+    """Stagione in copertina, l'anno più recente del diario -> (anno, uscite, bass, record di quell'anno) o None."""
+    if not trips:
+        return None
+    year = max(t["data"][:4] for t in trips)
+    those = [t for t in trips if t["data"][:4] == year]
+    return year, len(those), sum(len(t["catture"]) for t in those), _b5_record(those)
+
+
 def _b5_diary_head(trips, live, user=None):
-    """Riquadro in cima: titolo (con l'account, se collegato), totali e, senza uscite in corso, il luogo e i due modi
-    di aggiungere un'uscita."""
+    """
+    Copertina: titolo e stagione in numeri grandi (bass, uscite, record in ambra) sulla scena del lago, come in
+    cima a Pesca e Meteo (cielo di adesso nel luogo in uso); senza uscite in corso, sotto, il lago e i due modi di
+    segnare un'uscita. I cappotti stanno nei numeri, non qui: la copertina mostra il buono della stagione.
+    """
     ss = st.session_state
-    done = [t for t in trips if t["fine"]]
-    with st.container(border=True, gap="xsmall", key="b5_card_diary"):
-        st.markdown('<div class="b5d-title">Diario</div>', unsafe_allow_html=True)
+    esc = _b5_html.escape
+    season = _b5_season(trips)
+    _b5_scene_css("b5_card_diary", _b5_scene_now(ss["b5_loc"], _b5_astro_now(ss["b5_loc"])))
+    with st.container(border=True, gap="small", key="b5_card_diary"):
+        top = '<div class="b5h-top"><span class="b5d-title">Diario</span>%s</div>' % (
+            '<span class="b5h-season">Stagione %s</span>' % season[0] if season else "")
+        if season:
+            _, n_trips, n_bass, rec = season
+            cells = ['<div><b>%d</b><span>bass</span></div>' % n_bass,
+                     '<div><b>%d</b><span>%s</span></div>' % (n_trips, "uscita" if n_trips == 1 else "uscite")]
+            if rec:
+                cells.append('<div class="b5h-rec"><b>%s%s</b><span>record</span></div>'
+                             % (_b5_icon("coppa", 24), esc(rec[2])))
+            body = '<div class="b5h-stats">%s</div>' % "".join(cells) + _b5_proof_hero(trips)
+        else:
+            body = '<div class="b5h-sub">Le tue uscite, le catture e com\'era la previsione, tutto in un posto.</div>'
+        st.markdown('<div class="b5h">%s%s</div>' % (top, body), unsafe_allow_html=True)
         if user:
             st.caption(":material/account_circle: %s" % _b5_mdx(user["nome"] or user["email"]))
-        if trips:
-            catches = sum(len(t["catture"]) for t in trips)
-            blanks = sum(1 for t in done if not t["catture"])
-            minutes = sum(_b5_min(t["fine"]) - _b5_min(t["inizio"]) for t in done)
-            chips = [_b5_chip(_b5_icon("data"), _b5_count(len(trips), "uscita", "uscite")),
-                     _b5_chip(_b5_fish_mark(14), "%d bass" % catches)]
-            if blanks:
-                chips.append(_b5_chip(_b5_icon("zero"), _b5_count(blanks, "cappotto", "cappotti")))
-            if minutes > 0:
-                chips.append(_b5_chip(_b5_icon("orologio"), _b5_dur(minutes) + " in acqua"))
-            st.markdown('<div class="b5-chips">%s</div>' % "".join(chips), unsafe_allow_html=True)
         if live:
             return
         loc = ss["b5_loc"]
-        st.button(":material/location_on: %s :material/expand_more:" % _b5_mdx(loc.get("name") or "Località"),
-                  key="b5_dloc", type="tertiary", on_click=_b5_cb_open, args=("loc",))
+        with st.container(horizontal=True, vertical_alignment="center", gap="xsmall", key="b5_dnext"):
+            st.markdown(":small[Dove peschi:]", width="content")
+            st.button("%s :material/expand_more:" % _b5_mdx(loc.get("name") or "Località"), key="b5_dloc",
+                      type="tertiary", on_click=_b5_cb_open, args=("loc",))
         with st.container(horizontal=True, gap="small"):
             st.button(":material/play_arrow: Inizia adesso", key="b5_dstart_btn", type="primary", width="stretch",
                       on_click=_b5_cb_start)
-            st.button(":material/add: Già fatta", key="b5_dnew", width="stretch", on_click=_b5_cb_dlg, args=("new",))
-        if not trips:
-            st.caption("Inizia quando arrivi in acqua: meteo e previsione si salvano in quel momento, prima delle "
-                       "catture.")
+            st.button(":material/history: Uscita passata", key="b5_dnew", width="stretch", on_click=_b5_cb_dlg,
+                      args=("new",))
 
 
 def _b5_diary_live(trip, now):
-    """Uscita in corso: catture con un tocco, modifica, fine."""
+    """Uscita in corso: catture con un tocco, modifica, fine. Sotto il numero: Attività di adesso in parole e, se più
+    avanti nel giorno va meglio, l'ora in cui va meglio (il picco già passato non serve a chi sta pescando)."""
+    ss = st.session_state
     esc = _b5_html.escape
     same_day = now.date().isoformat() == trip["data"]
     n = len(trip["catture"])
     with st.container(border=True, gap="small", key="b5_dlive"):
-        head = ("In acqua dalle %s · %s" % (trip["inizio"], _b5_dur(_b5_trip_end(trip, now) - _b5_min(trip["inizio"])))
+        head = ("A pesca dalle %s · %s" % (trip["inizio"], _b5_dur(_b5_trip_end(trip, now) - _b5_min(trip["inizio"])))
                 if same_day else "Uscita di %s ancora aperta" % _b5_day_label(trip["data"]))
-        big = '<div class="b5d-big%s">%d<small>bass</small></div>' % ("" if n else " b5d-zero", n)
-        times = "".join(_b5_chip(_b5_fish_mark(12), c["ora"]) for c in trip["catture"])
+        # React riusa lo stesso elemento e cambia solo la cifra: con la stessa classe l'animazione partirebbe solo la
+        # prima volta. La classe alterna b5d-pop0 / b5d-pop1 con il numero e resta finché il numero non cambia (un
+        # ridisegno subito dopo non la interrompe); cambiando sezione si toglie (_b5_nav).
+        pop = ' class="b5d-pop%d"' % (n % 2) if ss.get("b5_pop_n") == n else ""
+        big = '<div class="b5d-big%s"><span%s>%d</span><small>bass</small></div>' % ("" if n else " b5d-zero", pop, n)
         prev = trip.get("prev")
+        pending = ss.get("b5_dprev")
         line = ""
         if prev and same_day:
-            v = prev["ore"]["att"][now.hour]
-            line = '<div class="b5d-sub">Attività adesso <b>%s</b> · picco del giorno alle %02d:00</div>' % (
-                "–" if v is None else v, prev["picco"])
+            att = prev["ore"]["att"]
+            v = att[now.hour]
+            later = [(h, att[h]) for h in range(now.hour + 1, 24) if att[h] is not None]
+            best = max(later, key=lambda hv: hv[1]) if later else None
+            tail = (" · meglio verso le %02d:00" % best[0]
+                    if best is not None and v is not None and best[1] >= v + 5 else "")
+            line = ('<div class="b5d-sub">Attività adesso <b>%s</b>%s%s</div>'
+                    % ("–" if v is None else v, " · " + _b5_index_word(v) if v is not None else "", tail))
+        elif not prev and isinstance(pending, (tuple, list)) and pending[0] == trip["id"]:
+            line = '<div class="b5d-sub b5d-wait">Calcolo la previsione di adesso…</div>'
         elif not prev:
-            line = '<div class="b5d-sub">Previsione non disponibile all\'inizio: la calcolo a fine uscita.</div>'
-        st.markdown('<div class="b5d"><div class="b5d-live">%s</div><div class="b5d-place">%s</div>%s%s%s</div>'
-                    % (esc(head), esc(trip["luogo"]["name"]), big,
-                       '<div class="b5d-times">%s</div>' % times if times else "", line),
-                    unsafe_allow_html=True)
+            line = '<div class="b5d-sub">Previsione non disponibile adesso: la calcolo a fine uscita.</div>'
+        st.markdown('<div class="b5d"><div class="b5d-live">%s</div><div class="b5d-place">%s</div>%s%s</div>'
+                    % (esc(head), esc(trip["luogo"]["name"]), big, line), unsafe_allow_html=True)
         if same_day:
             st.button(":material/add: Cattura", key="b5_dcatch", type="primary", width="stretch",
                       on_click=_b5_cb_catch, args=(trip["id"],))
+        # orari delle catture toccabili e scheda sotto (componente): peso, lunghezza ed esca senza aprire Modifica
+        recent, lures = _b5_lure_lists(_b5_diary_trips())
+        got, _ = _b5_scheda("b5_scheda_live", {
+            "mode": "catture", "key": "l" + trip["id"], "recent": recent, "lures": lures,
+            "trip": {"inizio": trip["inizio"], "catture": _b5_scheda_catches(trip["catture"])},
+            "map": _b5_map_cfg(trip["luogo"]),
+            "open": ss.get("b5_open_catch"), "buzz": ss.get("b5_buzz")}, "cattura")
+        if isinstance(got, dict) and got.get("id"):
+            _b5_live_apply(trip, got)
         with st.container(horizontal=True, gap="small"):
             st.button(":material/edit: Modifica", key="b5_dedit_live", width="stretch", on_click=_b5_cb_dlg,
                       args=("edit", trip["id"]))
             st.button(":material/flag: Fine uscita", key="b5_dend", width="stretch", on_click=_b5_cb_end,
                       args=(trip["id"],))
-        if n and same_day:
-            st.button("Togli l'ultima cattura (%s)" % trip["catture"][-1]["ora"], key="b5_dundo", type="tertiary",
-                      on_click=_b5_cb_catch_undo, args=(trip["id"],))
+
+
+def _b5_live_apply(trip, got):
+    """Scheda di una cattura confermata ("Fatto") o eliminata nell'uscita in corso."""
+    ss = st.session_state
+    ss.pop("b5_open_catch", None)
+    cid = str(got["id"])
+    if got.get("elimina"):
+        catches = [c for c in trip["catture"] if c["id"] != cid]
+        ss["b5_toast"] = ("Cattura eliminata", ":material/delete:")
+    else:
+        new = _b5_catch_clean(dict(got, id=cid))
+        if not new:
+            return
+        if new["spot"] and _b5_at_sea(new["spot"]["lat"], new["spot"]["lon"]):
+            old = next((c for c in trip["catture"] if c["id"] == cid), {})
+            new["spot"] = old.get("spot")
+            ss["b5_toast"] = ("Spot in mare, non l'ho segnato: rimettilo sul lago", ":material/waves:")
+        catches = sorted((new if c["id"] == cid else c for c in trip["catture"]), key=lambda c: c["ora"])
+    _b5_diary_put(dict(trip, catture=list(catches)))
+    st.rerun()
 
 
 def _b5_diary_intro(cloud):
-    where = ("Il diario è salvato nel tuo account." if cloud else
-             "Il diario resta su questo telefono e non va su internet.")
-    st.markdown(
-        '<div class="b5m-card b5d-intro"><div class="b5m-cap">Come funziona</div><ol>'
-        "<li>Arrivato in acqua tocca <b>Inizia adesso</b>: l'app salva meteo, acqua stimata e previsione di quel "
-        "momento.</li><li>A ogni bass tocca <b>Cattura</b>: basta un tocco, peso ed esca puoi aggiungerli dopo.</li>"
-        "<li>A fine giornata <b>Fine uscita</b>, anche senza catture: i cappotti servono a capire se la previsione "
-        "funziona.</li></ol><p>Per un'uscita già fatta tocca <b>Già fatta</b>. %s</p></div>" % where,
-        unsafe_allow_html=True)
+    """
+    Diario vuoto: un'uscita d'esempio disegnata come quelle vere (striscia delle ore, catture, il più grosso) e tre
+    passi brevi. Prima c'erano tre paragrafi: chi apriva il Diario la prima volta non vedeva che cosa sarebbe diventato.
+    """
+    esc = _b5_html.escape
+    today = _b5_dt.date.today()
+    day = today - _b5_dt.timedelta(days=(today.weekday() - 5) % 7 or 7)       # l'ultimo sabato
+    att = [12, 10, 9, 9, 10, 14, 22, 34, 48, 58, 62, 57, 49, 44, 42, 45, 50, 47, 38, 30, 24, 19, 15, 13]
+    sample = {"id": "esempio", "luogo": {"name": "Il tuo lago"}, "data": day.isoformat(), "inizio": "07:00",
+              "fine": "11:30", "acqua": None, "nota": "", "prev": {"ore": {"att": att}},
+              "catture": [{"id": "a", "ora": "08:10", "kg": 0.85, "cm": 38, "esca": "Texas rig", "nota": ""},
+                          {"id": "b", "ora": "09:25", "kg": 1.4, "cm": 45, "esca": "Spinnerbait", "nota": ""},
+                          {"id": "c", "ora": "10:05", "kg": 0.6, "cm": 33, "esca": "Texas rig", "nota": ""}]}
+    now = _b5_dt.datetime.now()
+    card = ('<div class="b5d-sample"><span class="b5d-tag">Esempio</span><div class="b5d-row"><div class="b5d-txt">'
+            '<span class="b5d-when">%s · Il tuo lago</span><span class="b5d-res">%s</span><span class="b5d-sub">%s</span>'
+            '</div>%s</div><div class="b5d-legend"><i class="b5d-key"></i>ore di pesca <i class="b5d-dot"></i>cattura'
+            ' · altezza: Attività prevista</div></div>'
+            % (esc(_b5_day_label(sample["data"])), _b5_trip_result(sample), esc(_b5_trip_times(sample, now)),
+               _b5_trip_strip(sample, now)))
+    steps = ('<ol class="b5d-steps"><li><b>Inizia adesso</b> quando arrivi sullo spot: l\'app salva meteo e '
+             'previsione di quel momento.</li><li><b>+ Cattura</b> a ogni bass. Peso ed esca, se vuoi, anche dopo.'
+             '</li><li><b>Fine uscita</b>, anche senza catture: i cappotti servono a capire se la previsione '
+             'funziona.</li></ol>')
+    foot = ("Le uscite si salvano nel tuo account." if cloud else
+            "Per un'uscita che hai già fatto tocca <b>Uscita passata</b>.")
+    st.markdown('<div class="b5m-card b5d-intro"><div class="b5d-ttl">Ecco come sarà il tuo diario</div>%s%s<p>%s</p>'
+                '</div>' % (card, steps, foot), unsafe_allow_html=True)
 
 
-def _b5_account_offer():
-    """Invito ad accedere (solo con gli account configurati e senza accesso)."""
+def _b5_account_offer(n):
+    """Invito ad accedere: solo con gli account configurati, senza accesso e con almeno un'uscita da proteggere (prima
+    compariva a diario vuoto, prima ancora di aver visto a cosa serve). In fondo alla pagina, breve."""
     with st.container(border=True, gap="small", key="b5_card_account"):
-        st.markdown('<div class="b5m-cap">Salva il diario nel tuo account</div><div class="b5d-sub">Lo ritrovi su '
-                    "ogni telefono e computer e non lo perdi cambiando browser. Le uscite già segnate qui potrai "
-                    "copiarle nell'account.</div>", unsafe_allow_html=True)
+        st.markdown('<div class="b5d-ttl">Salva le tue uscite</div><div class="b5d-sub">%s solo su questo telefono. '
+                    "Con l'accesso le ritrovi ovunque e non le perdi cambiando telefono.</div>"
+                    % ("La tua uscita è" if n == 1 else "Le tue %d uscite sono" % n), unsafe_allow_html=True)
         st.button(":material/login: Accedi con Google", key="b5_login", width="stretch", on_click=_b5_cb_go,
                   args=("login",))
-        st.caption("Con l'accesso salviamo nel database di Bassometro (Google Cloud, in Europa) le tue uscite, il tuo "
-                   "nome e la tua email. Puoi cancellarli quando vuoi, dal fondo di questa pagina.")
+        st.caption("Salviamo uscite, nome ed email su Google Cloud, in Europa. Puoi cancellarli quando vuoi.")
 
 
 def _b5_account_import(user):
@@ -10547,9 +12049,10 @@ def _b5_account_import(user):
     if not extra:
         return
     with st.container(border=True, gap="small", key="b5_card_import"):
-        st.markdown('<div class="b5m-cap">Uscite su questo telefono</div><div class="b5d-sub">%s salvate qui prima '
-                    "dell'accesso non sono ancora nel tuo account.</div>"
-                    % _b5_count(len(extra), "uscita", "uscite").capitalize(), unsafe_allow_html=True)
+        st.markdown('<div class="b5d-ttl">Uscite su questo telefono</div><div class="b5d-sub">%s qui prima '
+                    "dell'accesso non %s ancora nel tuo account.</div>"
+                    % (_b5_count(len(extra), "uscita salvata", "uscite salvate").capitalize(),
+                       "è" if len(extra) == 1 else "sono"), unsafe_allow_html=True)
         if not st.button(":material/cloud_upload: Copiale nel mio account", key="b5_import", type="primary",
                          width="stretch"):
             return
@@ -10563,69 +12066,277 @@ def _b5_account_import(user):
 
 
 def _b5_diary_proof(trips):
-    """Come va la previsione: catture all'ora nelle ore forti e nelle altre, sommando le uscite concluse."""
-    splits = [s for s in map(_b5_trip_split, trips) if s]
-    n = len(splits)
+    """La previsione ti aiuta? Catture all'ora nelle ore forti e nelle altre, sommando le uscite concluse."""
+    stats = _b5_proof_stats(trips)
+    n = stats["n"]
     green = globals().get("B4_COL_BAI", "#0fa874")
     if n < B5_DIARY_MIN_TRIPS:
-        st.markdown('<div class="b5m-card"><div class="b5d-head"><span class="b5m-cap">Come va la previsione</span>'
-                    '<span class="b5m-cap">%d su %d uscite</span></div><span class="b5d-bar"><i style="width:%.0f%%;'
-                    'background:%s"></i></span><div class="b5m-sub">Dopo %d uscite concluse qui vedrai se prendi di '
-                    "più nelle ore che il modello dava migliori. Contano le uscite di almeno due ore con la previsione "
-                    "salvata.</div></div>" % (n, B5_DIARY_MIN_TRIPS, 100.0 * n / B5_DIARY_MIN_TRIPS, green,
-                                              B5_DIARY_MIN_TRIPS), unsafe_allow_html=True)
+        st.markdown('<div class="b5m-card"><div class="b5d-head"><span class="b5d-ttl">La previsione ti aiuta?</span>'
+                    '<span class="b5m-sub">%d su %d uscite</span></div><span class="b5d-bar"><i style="width:%.0f%%;'
+                    'background:%s"></i></span><div class="b5m-sub">Dopo %d uscite qui vedrai se prendi di più nelle '
+                    "ore che la previsione dava migliori. Contano le uscite di almeno due ore.</div></div>"
+                    % (n, B5_DIARY_MIN_TRIPS, 100.0 * n / B5_DIARY_MIN_TRIPS, green, B5_DIARY_MIN_TRIPS),
+                    unsafe_allow_html=True)
         return
-    hs, cs, hw, cw = (sum(x) for x in zip(*splits))
-    rs, rw = (cs / hs if hs else 0.0), (cw / hw if hw else 0.0)
-    total = cs + cw
-    if not total:
-        verdict = "Ancora nessuna cattura nelle uscite concluse: il confronto parte dalla prima."
-    elif not rw:
-        verdict = "Finora tutte le catture sono arrivate nelle ore forti."
-    elif rs / rw >= 1.5:
-        verdict = "Nelle ore forti prendi %s volte di più che nelle altre." % _b5_it(rs / rw, 1)
-    elif rs / rw <= 1 / 1.5:
-        verdict = "Finora prendi di più nelle altre ore: per te la previsione non sta funzionando."
-    else:
-        verdict = "Finora nessuna differenza chiara tra ore forti e altre ore."
+    hs, hw, rs, rw, total = stats["hs"], stats["hw"], stats["rs"], stats["rw"], stats["total"]
+    verdict = {"zero": "Ancora nessuna cattura nelle uscite concluse: il confronto parte dalla prima.",
+               "tutte": "Finora tutte le catture sono arrivate nelle ore forti.",
+               "aiuta": "Nelle ore forti prendi %s volte di più che nelle altre." % (_b5_it(rs / rw, 1) if rw else ""),
+               "no": "Finora prendi di più nelle altre ore: con te la previsione non sta funzionando.",
+               "uguale": "Finora nessuna differenza chiara tra ore forti e altre ore."}[stats["kind"]]
     if total < B5_DIARY_FEW_CATCHES:
-        verdict += " Con %s è presto per conclusioni." % _b5_count(total, "cattura", "catture")
+        verdict += " Con %s è presto per dirlo." % _b5_count(total, "cattura", "catture")
     top = max(rs, rw) or 1.0
 
     def cell(label, rate, hours, color):
         return ('<div><span class="b5m-lab">%s</span><span class="b5m-val">%s<small>bass/ora</small></span>'
                 '<span class="b5d-bar"><i style="width:%.0f%%;background:%s"></i></span>'
-                '<span class="b5m-sub">%s in acqua</span></div>'
+                '<span class="b5m-sub">%s di pesca</span></div>'
                 % (label, _b5_it(rate, 1), 100.0 * rate / top, color, _b5_dur(hours * 60)))
 
-    st.markdown('<div class="b5m-card"><div class="b5m-cap">Come va la previsione</div><div class="b5d-cmp">%s%s</div>'
-                '<div class="b5d-verdict">%s</div><div class="b5m-sub">Ore forti: in ogni uscita, la metà delle ore in '
-                "acqua con l'Attività prevista più alta. %s, %s.</div></div>"
+    st.markdown('<div class="b5m-card"><div class="b5d-ttl">La previsione ti aiuta?</div><div class="b5d-cmp">%s%s</div>'
+                '<div class="b5d-verdict">%s</div><div class="b5m-sub">Ore forti: in ogni uscita, le ore di pesca con '
+                "l'Attività prevista più alta. Su %s e %s.</div></div>"
                 % (cell("Ore forti", rs, hs, green), cell("Altre ore", rw, hw, "rgba(242,242,247,.45)"),
                    _b5_html.escape(verdict), _b5_count(n, "uscita", "uscite"), _b5_count(total, "cattura", "catture")),
                 unsafe_allow_html=True)
 
 
+def _b5_cb_filter(widget_key, store_key):
+    """Filtro scelto nella finestrella: "Tutti" toglie il filtro."""
+    value = st.session_state.get(widget_key)
+    st.session_state[store_key] = None if value in (None, "Tutti") else value
+
+
+def _b5_cb_filters_off():
+    ss = st.session_state
+    for key in ("b5_dyear", "b5_dlake", "b5w_dyear", "b5w_dlake"):
+        ss.pop(key, None)
+
+
+def _b5_diary_view(trips):
+    """
+    Uscite / I tuoi numeri e, sulla stessa riga, il pulsante dei filtri (anno e lago in una finestrella, solo se ce
+    n'è più d'uno): prima erano tre righe di pulsanti prima dell'elenco. Con un filtro attivo, sotto, una riga che lo
+    dice e lo toglie. -> (vista, uscite filtrate). Le scelte restano tornando da Pesca o Meteo (_b5_cb_mirror).
+    """
+    ss = st.session_state
+    years = sorted({t["data"][:4] for t in trips}, reverse=True)
+    counts = {}
+    for t in trips:
+        counts[t["luogo"]["name"]] = counts.get(t["luogo"]["name"], 0) + 1
+    lakes = sorted(counts, key=lambda n: -counts[n])
+    year = ss.get("b5_dyear") if ss.get("b5_dyear") in years else None
+    lake = ss.get("b5_dlake") if ss.get("b5_dlake") in lakes else None
+    with st.container(horizontal=True, gap="small", vertical_alignment="center", key="b5_dviewrow"):
+        view = st.segmented_control(
+            "Vista", ["Uscite", "Numeri"], default=ss.get("b5_dview", "Uscite"), key="b5w_dview", required=True,
+            width="stretch", label_visibility="collapsed", on_change=_b5_cb_mirror, args=("b5w_dview", "b5_dview"),
+            format_func={"Uscite": ":material/list: Uscite", "Numeri": ":material/bar_chart: I tuoi numeri"}.get)
+        if len(years) > 1 or len(lakes) > 1:
+            on = (year is not None) + (lake is not None)
+            with st.popover(":material/filter_list:" + (" %d" % on if on else ""), key="b5_dfilter",
+                            type="primary" if on else "secondary", help="Filtra per anno e per lago"):
+                if len(years) > 1:
+                    st.pills("Anno", ["Tutti"] + years, default=year or "Tutti", key="b5w_dyear", required=True,
+                             on_change=_b5_cb_filter, args=("b5w_dyear", "b5_dyear"))
+                if len(lakes) > 1:
+                    st.pills("Lago", ["Tutti"] + lakes, default=lake or "Tutti", key="b5w_dlake", required=True,
+                             on_change=_b5_cb_filter, args=("b5w_dlake", "b5_dlake"))
+    if year or lake:
+        with st.container(horizontal=True, vertical_alignment="center", gap="xsmall", key="b5_dfilters_on"):
+            st.markdown(":small[Solo %s]" % _b5_mdx(" · ".join(x for x in (year, lake) if x)), width="content")
+            st.button("Togli il filtro", key="b5_dfilters_off", type="tertiary", on_click=_b5_cb_filters_off)
+    out = [t for t in trips if (year is None or t["data"][:4] == year) and (lake is None or t["luogo"]["name"] == lake)]
+    return view or "Uscite", out
+
+
 def _b5_diary_list(trips, now):
-    """Uscite concluse dalla più recente, divise per mese (quella in corso sta nel suo riquadro); ogni riquadro si
-    tocca per intero e apre il dettaglio."""
+    """Uscite concluse dalla più recente, divise per mese con i totali del mese (quella in corso sta nel suo
+    riquadro), B5_DIARY_PAGE alla volta; ogni riquadro si tocca per intero e apre il dettaglio."""
+    ss = st.session_state
     esc = _b5_html.escape
+    done = sorted((t for t in trips if t["fine"]), key=lambda t: (t["data"], t["inizio"]), reverse=True)
+    if not done:
+        st.caption("Nessuna uscita conclusa con questi filtri.")
+        return
+    sig = (len(done), done[0]["id"], done[-1]["id"])
+    if ss.get("b5_dlist_sig") != sig:               # filtri cambiati: si riparte dalle prime uscite
+        ss["b5_dlist_sig"], ss["b5_dlist_n"] = sig, B5_DIARY_PAGE
+    shown = done[:int(ss.get("b5_dlist_n", B5_DIARY_PAGE))]
+    rec = _b5_record(_b5_diary_trips())             # la coppa va sull'uscita del record di tutto il diario
+    rec_id = rec[0]["id"] if rec else None
+    months = {}
+    for t in done:
+        m = months.setdefault(t["data"][:7], [0, 0])
+        m[0] += 1
+        m[1] += len(t["catture"])
     month = None
-    for t in sorted((t for t in trips if t["fine"]), key=lambda t: (t["data"], t["inizio"]), reverse=True):
+    for t in shown:
         d = _b5_dt.date.fromisoformat(t["data"])
-        if (d.year, d.month) != month:
-            month = (d.year, d.month)
-            st.markdown('<p class="b5d-month">%s %d</p>' % (_B5_MON_FULL[d.month - 1].capitalize(), d.year),
-                        unsafe_allow_html=True)
-        sub = _b5_trip_times(t, now) + (" · acqua %s° misurata" % _b5_it(t["acqua"]) if t["acqua"] is not None else "")
+        if t["data"][:7] != month:
+            month = t["data"][:7]
+            n_trips, n_bass = months[month]
+            st.markdown('<div class="b5d-month">%s %d<span>%s · %d bass</span></div>'
+                        % (_B5_MON_FULL[d.month - 1].capitalize(), d.year, _b5_count(n_trips, "uscita", "uscite"),
+                           n_bass), unsafe_allow_html=True)
+        sub = _b5_trip_times(t, now) + (" · acqua %s°" % _b5_it(t["acqua"]) if t["acqua"] is not None else "")
         with st.container(border=True, key="b5_dcard_" + t["id"]):
             st.markdown('<div class="b5d-row"><div class="b5d-txt"><span class="b5d-when">%s · %s</span>'
                         '<span class="b5d-res">%s</span><span class="b5d-sub">%s</span></div>%s'
                         '<span class="b5d-go" aria-hidden="true">›</span></div>'
-                        % (esc(_b5_day_label(t["data"])), esc(t["luogo"]["name"]), _b5_trip_result(t), esc(sub),
-                           _b5_trip_strip(t, now)), unsafe_allow_html=True)
+                        % (esc(_b5_day_label(t["data"])), esc(t["luogo"]["name"]),
+                           _b5_trip_result(t, rec=t["id"] == rec_id), esc(sub), _b5_trip_strip(t, now)),
+                        unsafe_allow_html=True)
             st.button("Apri l'uscita di %s" % _b5_day_label(t["data"]), key="b5_dcbtn_" + t["id"],
                       on_click=_b5_cb_dlg, args=("view", t["id"]))
+    rest = len(done) - len(shown)
+    if rest > 0:
+        st.button("Mostra altre %d uscite" % min(rest, B5_DIARY_PAGE), key="b5_dmore", width="stretch",
+                  on_click=_b5_cb_more)
+        st.caption("%d di %d uscite" % (len(shown), len(done)), text_alignment="center")
+
+
+def _b5_record(trips):
+    """Il pesce più grosso: (uscita, cattura, testo breve) per peso, o per lunghezza se nessuno è pesato; None."""
+    pairs = [(t, c) for t in trips for c in t["catture"]]
+    weighed = [p for p in pairs if p[1]["kg"]]
+    if weighed:
+        t, c = max(weighed, key=lambda p: p[1]["kg"])
+        return t, c, "%s kg" % _b5_it(c["kg"], 2 if c["kg"] < 1 else 1)
+    measured = [p for p in pairs if p[1]["cm"]]
+    if measured:
+        t, c = max(measured, key=lambda p: p[1]["cm"])
+        return t, c, "%s cm" % _b5_it(c["cm"], 0)
+    return None
+
+
+def _b5_bars_svg(values, labels, height=64, every=1):
+    """Colonne verdi su binario, valore sopra le colonne non vuote; etichette ogni `every` colonne."""
+    n = len(values)
+    gap, top, lab = 5, 14, 14
+    bw = max(8, min(34, int((340 - gap * (n - 1)) / max(1, n))))
+    w = n * (bw + gap) - gap
+    hi = max(values) or 1
+    green = globals().get("B4_COL_BAI", "#0fa874")
+    parts = []
+    for i, v in enumerate(values):
+        x = i * (bw + gap)
+        bh = (height * v / float(hi)) if v else 0
+        parts.append('<rect x="%d" y="%d" width="%d" height="%d" rx="3" fill="rgba(242,242,247,.06)"/>'
+                     % (x, top, bw, height))
+        if v:
+            parts.append('<rect x="%d" y="%.1f" width="%d" height="%.1f" rx="3" fill="%s"/>'
+                         % (x, top + height - bh, bw, bh, green))
+            parts.append('<text x="%.1f" y="%.1f" text-anchor="middle" fill="#F2F2F7">%d</text>'
+                         % (x + bw / 2.0, top + height - bh - 3, v))
+        if i % every == 0:
+            parts.append('<text x="%.1f" y="%d" text-anchor="middle">%s</text>'
+                         % (x + bw / 2.0, top + height + lab - 2, _b5_html.escape(labels[i])))
+    total = top + height + lab
+    return ('<svg class="b5n-bars" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s" '
+            'font-size="11" fill="rgba(242,242,247,.55)">%s</svg>'
+            % (w, total, w, total, _b5_html.escape(", ".join("%s %d" % (labels[i], v) for i, v in enumerate(values))),
+               "".join(parts)))
+
+
+def _b5_diary_numbers(trips):
+    """I tuoi numeri (con i filtri scelti): record, totali, catture per mese, esche e ore che hanno preso di più."""
+    esc = _b5_html.escape
+    done = [t for t in trips if t["fine"]]
+    if not done:
+        st.caption("Nessuna uscita conclusa con questi filtri.")
+        return
+    pairs = [(t, c) for t in done for c in t["catture"]]
+    n_bass, blanks = len(pairs), sum(1 for t in done if not t["catture"])
+    minutes = sum(_b5_min(t["fine"]) - _b5_min(t["inizio"]) for t in done)
+    parts = []
+    rec = _b5_record(done)
+    if rec:
+        t, c, txt = rec
+        extra = [b for b in ("%s cm" % _b5_it(c["cm"], 0) if c["cm"] and c["kg"] else "", _b5_lure_name(c["esca"]),
+                             "%s %s" % (_b5_day_label(t["data"]), t["data"][:4]), t["luogo"]["name"]) if b]
+        parts.append('<div class="b5n-rec">%s<div><span class="b5m-lab">Il tuo record</span><span class="b5n-big">%s'
+                     '</span><span class="b5m-sub">%s</span></div></div>'
+                     % (_b5_icon("coppa", 28), esc(txt), esc(" · ".join(extra))))
+    tiles = [("Uscite", str(len(done)), _b5_count(blanks, "cappotto", "cappotti") if blanks else "nessun cappotto"),
+             ("Bass", str(n_bass), "%s per uscita" % _b5_it(n_bass / float(len(done)), 1)),
+             ("Bass all'ora", _b5_it(n_bass / (minutes / 60.0), 2) if minutes else "–",
+              "in %s di pesca" % _b5_dur(minutes))]
+    parts.append('<div class="b5m-stats">%s</div>' % "".join(
+        '<div><span class="b5m-lab">%s</span><span class="b5m-val">%s</span><span class="b5m-sub">%s</span></div>'
+        % (a, b, esc(c)) for a, b, c in tiles))
+    if n_bass:
+        per_month = [0] * 12
+        for t, c in pairs:
+            per_month[int(t["data"][5:7]) - 1] += 1
+        first = next(i for i, v in enumerate(per_month) if v)
+        last = 11 - next(i for i, v in enumerate(reversed(per_month)) if v)
+        idx = list(range(first, last + 1))
+        parts.append('<div class="b5n-sec"><span class="b5m-lab">Catture per mese</span>%s</div>' % _b5_bars_svg(
+            [per_month[i] for i in idx], [_B5_MON[i] for i in idx]))
+        lures = {}
+        for _, c in pairs:
+            name = _b5_lure_name(c["esca"])
+            if name:
+                lures[name] = lures.get(name, 0) + 1
+        if lures:
+            top = sorted(lures.items(), key=lambda kv: -kv[1])[:4]
+            most = top[0][1]
+            rows = "".join('<div class="b5n-row"><span>%s</span><span class="b5d-bar"><i style="width:%.0f%%;'
+                           'background:%s"></i></span><b>%d</b></div>'
+                           % (esc(name), 100.0 * k / most, globals().get("B4_COL_BAI", "#0fa874"), k)
+                           for name, k in top)
+            missing = n_bass - sum(lures.values())
+            parts.append('<div class="b5n-sec"><span class="b5m-lab">Esche che hanno preso di più</span>%s%s</div>'
+                         % (rows, '<span class="b5m-sub">%s senza esca segnata</span>'
+                            % _b5_count(missing, "cattura", "catture") if missing else ""))
+        per_lake = {}
+        for t in done:
+            m = per_lake.setdefault(t["luogo"]["name"], [0, 0, 0, 0.0])
+            m[0] += 1
+            m[1] += len(t["catture"])
+            m[2] += _b5_min(t["fine"]) - _b5_min(t["inizio"])
+            m[3] = max([m[3]] + [c["kg"] for c in t["catture"] if c["kg"]])
+        if len(per_lake) > 1:                       # dove rendi di più: catture all'ora, così conta anche il tempo
+            rates = sorted(((n, v[1] / (v[2] / 60.0) if v[2] else 0.0, v[0], v[3]) for n, v in per_lake.items()),
+                           key=lambda r: -r[1])[:4]
+            best = rates[0][1] or 1.0
+            parts.append('<div class="b5n-sec"><span class="b5m-lab">Dove prendi di più</span>%s</div>' % "".join(
+                '<div class="b5n-row b5n-lake"><span>%s<small>%s</small></span><span class="b5d-bar"><i style="width:'
+                '%.0f%%;background:%s"></i></span><b>%s</b></div>'
+                % (esc(n), _b5_count(k, "uscita", "uscite") + (" · record %s kg" % _b5_it(kg, 2 if kg < 1 else 1)
+                                                                  if kg else ""),
+                   100.0 * r / best, globals().get("B4_COL_BAI", "#0fa874"), _b5_it(r, 2)) for n, r, k, kg in rates) + '<span class="b5m-sub">bass all\'ora di pesca</span>')
+        per_hour = [0] * 24
+        bands = {}
+        for t, c in pairs:
+            h = _b5_min(c["ora"]) // 60
+            per_hour[h] += 1
+            water = t["acqua"] if t["acqua"] is not None else ((t.get("prev") or {}).get("ore") or {}).get(
+                "acqua", [None] * 24)[h]
+            if water is not None:
+                b = int(water // 2 * 2)
+                bands[b] = bands.get(b, 0) + 1
+        h0 = max(range(23), key=lambda h: per_hour[h] + per_hour[h + 1])
+        k = per_hour[h0] + per_hour[h0 + 1]
+        cells = [("Ore", "%02d–%02d" % (h0, h0 + 2), "%s, il %d%%" % (_b5_count(k, "cattura", "catture"),
+                                                                    round(100.0 * k / n_bass)))]
+        if bands:
+            b, kb = max(bands.items(), key=lambda bk: bk[1])
+            cells.append(("Acqua", "%d–%d°" % (b, b + 2), _b5_count(kb, "cattura", "catture")))
+        parts.append('<div class="b5n-sec"><span class="b5m-lab">Quando prendi di più</span><div class="b5n-two">%s'
+                     '</div></div>' % "".join('<div><span class="b5n-mid">%s</span><span class="b5m-sub">%s · %s'
+                                              '</span></div>' % (v, a.lower(), esc(sub)) for a, v, sub in cells))
+    parts.append(_b5_milestones_html(_b5_diary_trips()))
+    st.markdown('<div class="b5m-card b5n">%s</div>' % "".join(parts), unsafe_allow_html=True)
+    points = _b5_spot_points(done, with_day=True)
+    if points:
+        with st.container(border=True, gap="small", key="b5_card_spots"):
+            st.markdown('<div class="b5d-ttl">I tuoi spot</div><div class="b5d-sub">%s con lo spot segnato. Tocca un '
+                        "pallino per giorno, ora e peso.</div>" % _b5_count(len(points), "cattura", "catture").capitalize(),
+                        unsafe_allow_html=True)
+            _b5_spot_map(points, "b5_map_all", 300)
 
 
 def _b5_account_box(user):
@@ -10660,26 +12371,31 @@ def _b5_diary_backup(diary, user):
     """Account (se collegato) e copia di sicurezza: il diario in un file JSON da scaricare e ricaricare (unione per
     uscita)."""
     ss = st.session_state
-    title = ":material/account_circle: Account e copia di sicurezza" if user else ":material/save: Copia di sicurezza"
+    title = (":material/account_circle: Account, copia di sicurezza ed Excel" if user else
+             ":material/save: Copia di sicurezza ed Excel")
     with st.expander(title):
         if user:
             _b5_account_box(user)
             st.divider()
-            st.caption("Il diario è salvato nel tuo account: una copia in un file resta utile per tenerlo anche "
-                       "fuori da Bassometro.")
+            st.caption("Il diario è nel tuo account. Se vuoi, scaricane anche una copia.")
         else:
-            st.caption("Il diario è salvato solo in questo browser, su questo telefono: non va su nessun server. Se "
-                       "cancelli i dati del browser o cambi telefono lo perdi, quindi scarica una copia ogni tanto. Su "
-                       "iPhone Safari può cancellare i dati di un sito che non apri da più di una settimana.")
+            st.caption("Il diario è salvato solo su questo telefono. Se cancelli i dati del browser o cambi telefono "
+                       "lo perdi: scarica una copia ogni tanto. Su iPhone, Safari può cancellarlo se non apri l'app per "
+                       "più di una settimana.")
         today = _b5_today(ss["b5_loc"].get("tz"), ss["b5_loc"].get("lon"))
         st.download_button(":material/download: Scarica una copia", data=_b5_diary_json(diary),
                            file_name="bassometro-diario-%s.json" % today.isoformat(), mime="application/json",
                            width="stretch", on_click="ignore", disabled=not diary["uscite"])
-        up = st.file_uploader("Ripristina da una copia", type=["json"], key="b5_dup")
-        if up is None or ss.get("b5_dup_done") == up.file_id:
+        raw = _b5_restore_pick()
+        st.divider()
+        st.caption("Per Excel o Fogli Google: una riga per cattura (e una per ogni cappotto) con peso, esca e le "
+                   "condizioni a quell'ora.")
+        st.download_button(":material/table_view: Scarica per Excel (.csv)", data=_b5_diary_csv(diary["uscite"]),
+                           file_name="bassometro-diario-%s.csv" % today.isoformat(), mime="text/csv",
+                           width="stretch", on_click="ignore", disabled=not diary["uscite"])
+        if raw is None:
             return
-        ss["b5_dup_done"] = up.file_id
-        _, trips = _b5_diary_parse(up.getvalue().decode("utf-8", "replace"))
+        _, trips = _b5_diary_parse(raw)
         if not trips:
             st.error("Il file non contiene uscite del diario di Bassometro.", icon=":material/error:")
             return
@@ -10693,6 +12409,605 @@ def _b5_diary_backup(diary, user):
         st.rerun()
 
 
+# ---- copia, Excel e immagine da condividere -------------------------------------------------------------------------
+def _b5_csv_cell(value):
+    text = "" if value is None else str(value)
+    return '"%s"' % text.replace('"', '""') if any(ch in text for ch in ';"\r\n') else text
+
+
+def _b5_diary_csv(trips):
+    """
+    Il diario per Excel: una riga per cattura e una per ogni cappotto, con le condizioni all'ora della cattura (o
+    dell'inizio). Punto e virgola e virgola nei decimali, come Excel in italiano; UTF-8 con BOM per gli accenti.
+    """
+    def num(v, nd=1):
+        return "" if v is None else ("%.*f" % (nd, v)).replace(".", ",")
+
+    head = ["Data", "Lago", "Inizio", "Fine", "Durata (min)", "Catture nell'uscita", "Ora cattura", "Peso (kg)",
+            "Lunghezza (cm)", "Esca", "Spot lat", "Spot lon", "Acqua misurata (°C)",
+            "Acqua stimata (°C)", "Aria (°C)", "Vento (km/h)", "Pressione (hPa)", "Attività prevista (0-100)",
+            "Nota cattura", "Nota uscita"]
+    lines = [";".join(head)]
+    for t in sorted(trips, key=lambda t: (t["data"], t["inizio"])):
+        ore = (t.get("prev") or {}).get("ore") or {}
+        base = [t["data"], t["luogo"]["name"], t["inizio"], t["fine"] or "",
+                _b5_min(t["fine"]) - _b5_min(t["inizio"]) if t["fine"] else "", len(t["catture"])]
+        for c in t["catture"] or [None]:
+            h = _b5_min(c["ora"] if c else t["inizio"]) // 60
+
+            def at(key, nd=1):
+                vals = ore.get(key) or []
+                return num(vals[h], nd) if h < len(vals) and vals[h] is not None else ""
+
+            sp = (c or {}).get("spot") or {}
+            row = base + ([c["ora"], num(c["kg"], 2), num(c["cm"], 0), _b5_lure_name(c["esca"]),
+                           num(sp.get("lat"), 5), num(sp.get("lon"), 5)] if c else [""] * 6)
+            row += [num(t["acqua"]), at("acqua"), at("aria"), at("vento", 0), at("press", 0), at("att", 0),
+                    (c or {}).get("nota") or "", t["nota"]]
+            lines.append(";".join(_b5_csv_cell(x) for x in row))
+    return "﻿" + "\r\n".join(lines) + "\r\n"
+
+
+# Ripristino della copia con un pulsante nostro: st.file_uploader scriveva "Upload" e "200MB per file" in inglese.
+_B5_RESTORE_CSS = """
+.b5r{display:flex;flex-direction:column;gap:6px}
+.b5r-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;margin:0;
+  padding:4px 12px;border:1px solid rgba(242,242,247,.2);border-radius:8px;background:transparent;color:inherit;
+  font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+@media (hover:hover){.b5r-btn:hover{border-color:var(--st-primary-color,#0fa874);color:var(--st-primary-color,#0fa874)}}
+.b5r-btn:disabled{opacity:.6;cursor:progress}
+.b5r-msg{margin:0;color:#E3B04B;font-size:14px}
+"""
+_B5_RESTORE_JS = r"""
+export default function ({ data, parentElement, setTriggerValue }) {
+  if (parentElement.querySelector(":scope > .b5r")) return;
+  const d = data || {};
+  const root = document.createElement("div");
+  root.className = "b5r";
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.hidden = true;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "b5r-btn";
+  btn.innerHTML = d.icon || "";                     // icona disegnata in Python
+  btn.append(d.label || "Ripristina da una copia");
+  const msg = document.createElement("p");
+  msg.className = "b5r-msg";
+  msg.hidden = true;
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    if (f.size > 8e6) { msg.textContent = "Il file è troppo grande per essere una copia del diario."; msg.hidden = false; return; }
+    const r = new FileReader();
+    r.onload = () => { input.value = ""; btn.disabled = true; setTriggerValue("file", { name: f.name, text: String(r.result) }); };
+    r.onerror = () => { input.value = ""; msg.textContent = "Non riesco a leggere il file."; msg.hidden = false; };
+    r.readAsText(f);
+  });
+  root.append(btn, input, msg);
+  parentElement.appendChild(root);
+}
+"""
+
+
+def _b5_restore_pick():
+    """Pulsante "Ripristina da una copia" -> testo del file scelto in questo giro, oppure None."""
+    ss = st.session_state
+    try:
+        from streamlit.components import v2 as components_v2
+        comp = components_v2.component("b5_ripristina", css=_B5_RESTORE_CSS, js=_B5_RESTORE_JS, isolate_styles=False)
+        res = comp(key="b5_restore", on_file_change=lambda: None, data={
+            "label": "Ripristina da una copia (.json)",
+            "icon": _B5_SVG % (24, 18, 18, '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/><path d="M12 8v4l3 2"/>')})
+    except Exception:                               # senza componenti v2: il caricamento di Streamlit
+        up = st.file_uploader("Ripristina da una copia", type=["json"], key="b5_dup")
+        if up is None or ss.get("b5_dup_done") == up.file_id:
+            return None
+        ss["b5_dup_done"] = up.file_id
+        return up.getvalue().decode("utf-8", "replace")
+    got = res.get("file") if hasattr(res, "get") else None
+    return str(got.get("text") or "") if isinstance(got, dict) else None
+
+
+# Immagine dell'uscita da condividere (4:5, come i post): logo, giorno, lago (si può nascondere), catture, il pesce più
+# grosso, la striscia delle ore con le catture e le condizioni. Disegnata nel browser su un canvas; sul telefono si apre
+# la condivisione (WhatsApp, Instagram...), sul computer si scarica il PNG. Niente coordinate nell'immagine.
+_B5_SHARE_CSS = """
+.b5c{display:flex;flex-direction:column;gap:8px}
+.b5c-row{display:flex;gap:8px;align-items:center}
+.b5c-btn{display:flex;flex:1;align-items:center;justify-content:center;gap:8px;min-height:40px;margin:0;
+  padding:4px 12px;border:1px solid rgba(242,242,247,.2);border-radius:8px;background:transparent;color:inherit;
+  font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+@media (hover:hover){.b5c-btn:hover{border-color:var(--st-primary-color,#0fa874);color:var(--st-primary-color,#0fa874)}}
+.b5c-btn:disabled{opacity:.6;cursor:progress}
+.b5c-chip{flex:none;min-height:40px;margin:0;padding:0 12px;border:1px solid rgba(242,242,247,.2);border-radius:999px;
+  background:transparent;color:rgba(242,242,247,.8);font:inherit;font-size:14px;cursor:pointer}
+.b5c-chip[aria-pressed="true"]{border-color:var(--st-primary-color,#0fa874);background:rgba(15,168,116,.18);
+  color:#F2F2F7}
+.b5c-msg{margin:0;color:rgba(242,242,247,.6);font-size:14px}
+"""
+_B5_SHARE_JS = r"""
+const FONT = (w, s) => w + " " + s + 'px "Source Sans", "Source Sans 3", -apple-system, "Segoe UI", Roboto, sans-serif';
+const rr = (g, x, y, w, h, r) => { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); g.fill(); };
+
+async function card(d, lake) {
+  const W = 1080, H = 1350, cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  try { await document.fonts.ready; } catch (e) { /* carattere di sistema */ }
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#08251a"); bg.addColorStop(0.42, "#000"); bg.addColorStop(1, "#000");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  if (d.logo) {
+    const img = new Image();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(d.logo);
+    try {
+      await img.decode();
+      const lh = 76, lw = lh * (img.naturalWidth || 1079) / (img.naturalHeight || 183);
+      g.drawImage(img, (W - lw) / 2, 64, lw, lh);
+    } catch (e) { /* senza logo */ }
+  }
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(400, 40); g.fillText(d.date, W / 2, 232);
+  let y = 300;
+  if (lake && d.lake) { g.fillStyle = "#F2F2F7"; g.font = FONT(600, 58); g.fillText(d.lake, W / 2, y); y += 58; }
+  g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(400, 38); g.fillText(d.times, W / 2, y);
+  if (d.n > 0) {
+    g.font = FONT(700, 250); const a = String(d.n), wa = g.measureText(a).width;
+    g.font = FONT(600, 84); const b = " bass", wb = g.measureText(b).width;
+    const x0 = (W - wa - wb) / 2;
+    g.textAlign = "left"; g.fillStyle = "#F2F2F7";
+    g.font = FONT(700, 250); g.fillText(a, x0, 640);
+    g.font = FONT(600, 84); g.fillText(b, x0 + wa, 640);
+    g.textAlign = "center";
+  } else {
+    g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(700, 160); g.fillText("Cappotto", W / 2, 610);
+  }
+  if (d.sub) { g.fillStyle = "#E3B04B"; g.font = FONT(600, 44); g.fillText(d.sub, W / 2, 712); }
+  const bars = d.bars || [];
+  if (bars.length) {
+    const top = 790, hb = 230, gap = 12;
+    const bw = Math.min(90, (780 - gap * (bars.length - 1)) / bars.length);
+    const xs = (W - bars.length * bw - gap * (bars.length - 1)) / 2;
+    bars.forEach((b, i) => {
+      const x = xs + i * (bw + gap), v = Math.max(0, Math.min(100, b.v || 0)), h = Math.max(6, hb * v / 100);
+      g.fillStyle = "rgba(242,242,247,.07)"; rr(g, x, top, bw, hb, 10);
+      g.fillStyle = b.in ? "#0fa874" : "rgba(242,242,247,.22)"; rr(g, x, top + hb - h, bw, h, 10);
+      g.fillStyle = "#F2F2F7";
+      for (let k = 0; k < Math.min(b.n || 0, 4); k++) {
+        g.beginPath(); g.arc(x + bw / 2, top + hb - h - 18 - k * 30, 11, 0, 2 * Math.PI); g.fill();
+      }
+      if (i % 2 === 0 || bars.length <= 8) {
+        g.fillStyle = "rgba(242,242,247,.55)"; g.font = FONT(400, 30);
+        g.fillText(String(b.h).padStart(2, "0"), x + bw / 2, top + hb + 44);
+      }
+    });
+    g.fillStyle = "rgba(242,242,247,.5)"; g.font = FONT(400, 28);
+    g.fillText("colonne: Attività prevista · ● cattura", W / 2, top + hb + 96);
+  }
+  if (d.cond) { g.fillStyle = "rgba(242,242,247,.78)"; g.font = FONT(400, 36); g.fillText(d.cond, W / 2, 1222); }
+  g.fillStyle = "rgba(242,242,247,.4)"; g.font = FONT(400, 28);
+  g.fillText("Bassometro · diario e previsioni per il black bass", W / 2, 1300);
+  return new Promise((ok) => cv.toBlob(ok, "image/png"));
+}
+
+async function seasonCard(d, lake) {        // "La mia stagione": totali, record, mesi, lago ed esca migliori
+  const W = 1080, H = 1350, cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  try { await document.fonts.ready; } catch (e) { /* carattere di sistema */ }
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#08251a"); bg.addColorStop(0.5, "#000"); bg.addColorStop(1, "#000");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  if (d.logo) {
+    const img = new Image();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(d.logo);
+    try {
+      await img.decode();
+      const lh = 76, lw = lh * (img.naturalWidth || 1079) / (img.naturalHeight || 183);
+      g.drawImage(img, (W - lw) / 2, 64, lw, lh);
+    } catch (e) { /* senza logo */ }
+  }
+  g.textAlign = "center"; g.textBaseline = "alphabetic";
+  g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(400, 42); g.fillText("La mia stagione", W / 2, 240);
+  g.fillStyle = "#0fa874"; g.font = FONT(700, 120); g.fillText(String(d.year), W / 2, 370);
+  const cols = [[String(d.bass), "bass"], [String(d.trips), d.trips === 1 ? "uscita" : "uscite"], [String(d.hours), "ore di pesca"]];
+  cols.forEach((c, i) => {
+    const x = W / 2 + (i - 1) * 320;
+    g.fillStyle = "#F2F2F7"; g.font = FONT(700, 108); g.fillText(c[0], x, 530);
+    g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(400, 36); g.fillText(c[1], x, 578);
+  });
+  if (d.rec) {
+    g.fillStyle = "rgba(242,242,247,.62)"; g.font = FONT(400, 36); g.fillText("Il mio record", W / 2, 668);
+    g.fillStyle = "#E3B04B"; g.font = FONT(700, 104); g.fillText(d.rec, W / 2, 770);
+    const sub = lake ? d.rec_sub : String(d.rec_sub || "").split(" · ").slice(-1)[0];
+    g.fillStyle = "rgba(242,242,247,.72)"; g.font = FONT(400, 34); g.fillText(sub, W / 2, 822);
+  }
+  const months = d.months || [];
+  const top = 880, hb = 170, gap = 14, bw = (780 - gap * 11) / 12, xs = (W - 780) / 2;
+  const most = Math.max(1, ...months);
+  months.forEach((v, i) => {
+    const x = xs + i * (bw + gap), h = v ? Math.max(8, hb * v / most) : 0;
+    g.fillStyle = "rgba(242,242,247,.07)"; rr(g, x, top, bw, hb, 8);
+    if (v) {
+      g.fillStyle = "#0fa874"; rr(g, x, top + hb - h, bw, h, 8);
+      g.fillStyle = "#F2F2F7"; g.font = FONT(600, 26); g.fillText(String(v), x + bw / 2, top + hb - h - 10);
+    }
+    g.fillStyle = "rgba(242,242,247,.55)"; g.font = FONT(400, 24);
+    g.fillText(String((d.mon || [])[i] || "").slice(0, 1).toUpperCase(), x + bw / 2, top + hb + 34);
+  });
+  g.fillStyle = "rgba(242,242,247,.78)"; g.font = FONT(400, 36);
+  let y = 1150;
+  if (lake && d.lake) { g.fillText("Lago migliore: " + d.lake, W / 2, y); y += 52; }
+  if (d.lure) { g.fillText("Esca: " + d.lure, W / 2, y); }
+  g.fillStyle = "rgba(242,242,247,.4)"; g.font = FONT(400, 28);
+  g.fillText("Bassometro · diario e previsioni per il black bass", W / 2, 1300);
+  return new Promise((ok) => cv.toBlob(ok, "image/png"));
+}
+
+export default function ({ data, parentElement }) {
+  const d = data || {};
+  const sig = JSON.stringify([d.kind, d.year, d.bass, d.trips, d.rec, d.months, d.date, d.lake, d.n, d.sub, d.times,
+    d.cond, d.bars]);
+  let root = parentElement.querySelector(":scope > .b5c");
+  if (root && root.dataset.sig === sig) return;
+  if (!root) { root = document.createElement("div"); root.className = "b5c"; parentElement.appendChild(root); }
+  root.dataset.sig = sig;
+  let lake = true;
+  const chip = document.createElement("button");
+  chip.type = "button"; chip.className = "b5c-chip";
+  chip.textContent = d.kind === "stagione" ? "Mostra i laghi" : "Mostra il lago";
+  chip.setAttribute("aria-pressed", "true");
+  chip.addEventListener("click", () => { lake = !lake; chip.setAttribute("aria-pressed", String(lake)); });
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "b5c-btn"; btn.innerHTML = d.icon || "";
+  btn.append(d.label || "Condividi l'uscita");
+  const msg = document.createElement("p"); msg.className = "b5c-msg"; msg.hidden = true;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; msg.hidden = true;
+    const save = (blob, name) => {                // computer, o condivisione non permessa: si scarica il PNG
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      msg.textContent = "Immagine salvata nei download."; msg.hidden = false;
+    };
+    let blob = null;
+    try {
+      blob = await (d.kind === "stagione" ? seasonCard(d, lake) : card(d, lake));
+      window.__b5lastCard = blob;                 // per le prove: l'ultima immagine creata
+      const file = new File([blob], d.file || "bassometro.png", { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: "Bassometro" }); }
+        catch (e) { if (!e || e.name !== "AbortError") save(blob, file.name); }
+      } else {
+        save(blob, file.name);
+      }
+    } catch (e) {
+      msg.textContent = "Non riesco a creare l'immagine."; msg.hidden = false;
+    }
+    btn.disabled = false;
+  });
+  const row = document.createElement("div");
+  row.className = "b5c-row";
+  row.append(btn, chip);
+  root.replaceChildren(row, msg);
+}
+"""
+
+
+def _b5_share_payload(trip, now):
+    """Dati dell'immagine da condividere (testi già scritti, colonne delle ore come nella striscia)."""
+    big = _b5_record([trip])
+    sub = ""
+    if big:
+        _, c, txt = big
+        sub = "il più grosso %s" % txt + (" · %s" % _b5_lure_name(c["esca"]) if c["esca"] else "")
+    title = _b5_day_label(trip["data"], full=True)
+    bars, cond = [], ""
+    prev = trip.get("prev")
+    if prev:
+        ore = prev["ore"]
+        start = _b5_min(trip["inizio"])
+        end = max(_b5_trip_end(trip, now), start + 1)
+        fished = sorted(h for h, _ in _b5_trip_hours(start, end))
+        counts = {}
+        for c in trip["catture"]:
+            h = _b5_min(c["ora"]) // 60
+            counts[h] = counts.get(h, 0) + 1
+        for h in range(max(0, start // 60 - 1), min(23, (end - 1) // 60 + 1) + 1):
+            bars.append({"h": h, "v": ore["att"][h] or 0, "in": h in fished, "n": counts.get(h, 0)})
+
+        def vals(key):
+            return [ore[key][h] for h in fished if ore[key][h] is not None]
+
+        water = trip["acqua"]
+        if water is None and vals("acqua"):
+            water = sum(vals("acqua")) / len(vals("acqua"))
+        bits = []
+        if water is not None:
+            bits.append("Acqua %s°" % _b5_it(water))
+        if vals("aria"):
+            bits.append("Aria %d°" % round(sum(vals("aria")) / len(vals("aria"))))
+        if vals("vento"):
+            bits.append("Vento %d–%d km/h" % (min(vals("vento")), max(vals("vento"))))
+        if vals("press"):
+            bits.append("%d hPa" % round(sum(vals("press")) / len(vals("press"))))
+        cond = " · ".join(bits)
+    logo = ""
+    path = _b5_logo_path(B5_LOGO_FILES[0])
+    if path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                logo = fh.read()
+        except OSError:
+            logo = ""
+    return {"date": title[0].upper() + title[1:], "lake": trip["luogo"]["name"], "times": _b5_trip_times(trip, now),
+            "n": len(trip["catture"]), "sub": sub, "bars": bars, "cond": cond, "logo": logo,
+            "file": "bassometro-%s.png" % trip["data"],
+            "icon": _B5_SVG % (24, 18, 18, '<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 '
+                                            '0 0 2-2v-7"/>')}
+
+
+def _b5_share_season(trips):
+    """Pulsante "Condividi la tua stagione": l'anno scelto nel filtro, altrimenti il più recente con uscite concluse."""
+    years = sorted({t["data"][:4] for t in trips if t["fine"]}, reverse=True)
+    if not years:
+        return
+    year = st.session_state.get("b5_dyear") if st.session_state.get("b5_dyear") in years else years[0]
+    try:
+        from streamlit.components import v2 as components_v2
+        comp = components_v2.component("b5_condividi", css=_B5_SHARE_CSS, js=_B5_SHARE_JS, isolate_styles=False)
+        comp(key="b5_share_season", data=_b5_season_payload(trips, year))
+    except Exception:
+        pass
+
+
+def _b5_share(trip, now):
+    """Pulsante "Condividi l'uscita" (immagine) nel dettaglio di un'uscita conclusa."""
+    try:
+        from streamlit.components import v2 as components_v2
+        comp = components_v2.component("b5_condividi", css=_B5_SHARE_CSS, js=_B5_SHARE_JS, isolate_styles=False)
+        comp(key="b5_share_" + trip["id"], data=_b5_share_payload(trip, now))
+    except Exception:
+        pass                                        # senza componenti v2 niente immagine
+
+
+# ---- mappa degli spot (dettaglio dell'uscita, I tuoi numeri) -------------------------------------------------------
+# Leaflet (stesso caricamento e stessa impronta del cassetto Località, una sola volta per pagina) con un pallino verde
+# per ogni cattura che ha lo spot; toccandolo, ora e peso. Le mappe di OpenStreetMap come nel cassetto Località.
+_B5_MAP_CSS = """
+.b5p{position:relative;border:1px solid rgba(242,242,247,.2);border-radius:8px;overflow:hidden;isolation:isolate;
+  background:#1c1c1f}
+.b5p.leaflet-container{font:inherit;font-size:12px}
+.b5p-msg{margin:0;padding:12px;color:rgba(242,242,247,.6);font-size:14px}
+"""
+_B5_MAP_JS = r"""
+function leaflet(cfg) {                       // una sola volta per pagina, con verifica dell'impronta (integrity)
+  if (window.L && window.L.map) return Promise.resolve(window.L);
+  if (!window.__b5Leaflet) {
+    window.__b5Leaflet = new Promise((ok, ko) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet"; css.href = cfg.base + "leaflet.css"; css.integrity = cfg.css; css.crossOrigin = "";
+      document.head.appendChild(css);
+      const js = document.createElement("script");
+      js.src = cfg.base + "leaflet.js"; js.integrity = cfg.js; js.crossOrigin = "";
+      js.onload = () => (window.L ? ok(window.L) : ko());
+      js.onerror = () => { window.__b5Leaflet = null; js.remove(); ko(); };
+      document.head.appendChild(js);
+    });
+  }
+  return window.__b5Leaflet;
+}
+
+export default function ({ data, parentElement }) {
+  const d = data || {};
+  const sig = JSON.stringify(d.points || []);
+  let root = parentElement.querySelector(":scope > .b5p");
+  if (root && root.dataset.sig === sig) return;
+  if (root) { if (root.__map) root.__map.remove(); root.remove(); }
+  root = document.createElement("div");
+  root.className = "b5p";
+  root.dataset.sig = sig;
+  root.style.height = (d.height || 240) + "px";
+  parentElement.appendChild(root);
+  leaflet(d.leaflet).then((L) => {
+    if (!root.isConnected) return;
+    const map = L.map(root, { scrollWheelZoom: false });
+    root.__map = map;
+    map.attributionControl.setPrefix(false);
+    L.tileLayer(d.tiles, { maxZoom: 19, attribution: d.attr }).addTo(map);
+    const pts = (d.points || []).map((p) => {
+      const m = L.circleMarker([p.lat, p.lon], { radius: 8, color: "#fff", weight: 2, fillColor: "#0fa874",
+                                                 fillOpacity: 1 }).addTo(map);
+      if (p.label) m.bindTooltip(p.label, { direction: "top", offset: [0, -8] });
+      return [p.lat, p.lon];
+    });
+    if (pts.length === 1) map.setView(pts[0], 16);
+    else map.fitBounds(pts, { padding: [28, 28], maxZoom: 16 });
+    new ResizeObserver(() => map.invalidateSize()).observe(root);
+  }).catch(() => {
+    const p = document.createElement("p");
+    p.className = "b5p-msg"; p.textContent = "Mappa non disponibile: controlla la connessione.";
+    root.replaceChildren(p);
+  });
+}
+"""
+
+
+def _b5_spot_map(points, key, height=240):
+    """Mappa con un pallino per ogni spot [{lat, lon, label}]; niente se non ci sono spot."""
+    if not points:
+        return
+    try:
+        from streamlit.components import v2 as components_v2
+        comp = components_v2.component("b5_mappa", css=_B5_MAP_CSS, js=_B5_MAP_JS, isolate_styles=False)
+        comp(key=key, data={"points": points, "tiles": B5_MAP_TILES, "attr": B5_MAP_ATTRIBUTION,
+                            "leaflet": B5_LEAFLET, "height": height})
+    except Exception:
+        pass                                        # senza componenti v2 niente mappa
+
+
+def _b5_spot_points(trips, with_day=False):
+    """Spot delle catture -> [{lat, lon, label}], con giorno nell'etichetta se le uscite sono più d'una."""
+    out = []
+    for t in trips:
+        for c in t["catture"]:
+            sp = c.get("spot")
+            if not sp:
+                continue
+            bits = [c["ora"]] if not with_day else [_b5_day_label(t["data"]), c["ora"]]
+            if c["kg"]:
+                bits.append("%s kg" % _b5_it(c["kg"], 2))
+            if c["esca"]:
+                bits.append(_b5_lure_name(c["esca"]))
+            out.append({"lat": sp["lat"], "lon": sp["lon"], "label": " · ".join(bits)})
+    return out
+
+
+def _b5_map_cfg(loc):
+    """Configurazione della mappa nella scheda della cattura, centrata sul lago dell'uscita."""
+    return {"tiles": B5_MAP_TILES, "attr": B5_MAP_ATTRIBUTION, "leaflet": B5_LEAFLET,
+            "lat": _b5_f(loc.get("lat"), 43.13), "lon": _b5_f(loc.get("lon"), 12.10)}
+
+
+# ---- traguardi -----------------------------------------------------------------------------------------------------
+# Pochi e sobri (niente effetto videogioco): numero di bass, il più grosso, uscite, laghi diversi. Si contano su tutto
+# il diario; quando se ne raggiunge uno nuovo compare un avviso (una volta per sessione, _b5_page_diario).
+_B5_MILESTONES = (
+    ("bass", 1, "Primo bass"), ("bass", 10, "10 bass"), ("bass", 25, "25 bass"), ("bass", 50, "50 bass"),
+    ("bass", 100, "100 bass"), ("bass", 250, "250 bass"),
+    ("kg", 1.0, "Primo bass oltre 1 kg"), ("kg", 1.5, "Oltre 1,5 kg"), ("kg", 2.0, "Oltre 2 kg"),
+    ("kg", 2.5, "Oltre 2,5 kg"), ("kg", 3.0, "Oltre 3 kg"),
+    ("uscite", 10, "10 uscite"), ("uscite", 25, "25 uscite"), ("uscite", 50, "50 uscite"), ("uscite", 100, "100 uscite"),
+    ("laghi", 3, "3 laghi diversi"), ("laghi", 5, "5 laghi diversi"),
+)
+_B5_MILESTONE_UNITS = {"bass": "bass", "uscite": "uscite", "laghi": "laghi", "kg": "kg"}
+
+
+def _b5_milestones(trips):
+    """-> (traguardi raggiunti [(tipo, soglia, nome)], prossimi [(nome, valore attuale, soglia, tipo)], uno per tipo)."""
+    kgs = [c["kg"] for t in trips for c in t["catture"] if c["kg"]]
+    now = {"bass": sum(len(t["catture"]) for t in trips), "kg": max(kgs) if kgs else 0.0,
+           "uscite": sum(1 for t in trips if t["fine"]), "laghi": len({t["luogo"]["name"] for t in trips})}
+    done = [m for m in _B5_MILESTONES if now[m[0]] >= m[1]]
+    nxt = []
+    for kind in ("bass", "kg", "uscite", "laghi"):
+        m = next((m for m in _B5_MILESTONES if m[0] == kind and now[kind] < m[1]), None)
+        if m:
+            nxt.append((m[2], now[kind], m[1], kind))
+    return done, nxt
+
+
+def _b5_milestones_html(trips):
+    """Sezione Traguardi di I tuoi numeri: gli ultimi raggiunti e i due prossimi più vicini, con la barra."""
+    esc = _b5_html.escape
+    done, nxt = _b5_milestones(trips)
+    if not done and not nxt:
+        return ""
+    chips = "".join('<span class="b5n-ms">%s%s</span>' % (_b5_icon("coppa", 14), esc(m[2])) for m in done[-4:][::-1])
+    near = sorted(nxt, key=lambda x: -(x[1] / float(x[2])))[:2]
+    rows = "".join('<div class="b5n-next"><span>%s</span><span class="b5d-bar"><i style="width:%.0f%%;background:%s">'
+                   '</i></span><b>%s</b></div>'
+                   % (esc(name), 100.0 * min(1.0, cur / float(goal)), globals().get("B4_COL_BAI", "#0fa874"),
+                      ("%s / %s kg" % (_b5_it(cur, 2), _b5_it(goal, 1)) if kind == "kg" else "%d / %d" % (cur, goal)))
+                   for name, cur, goal, kind in near)
+    return ('<div class="b5n-sec"><span class="b5m-lab">Traguardi · %d su %d</span>%s%s</div>'
+            % (len(done), len(_B5_MILESTONES), '<div class="b5n-mss">%s</div>' % chips if chips else "",
+               '<span class="b5m-sub">Prossimi</span>%s' % rows if rows else ""))
+
+
+# ---- la previsione ti aiuta? (copertina e I tuoi numeri) ------------------------------------------------------------
+def _b5_proof_stats(trips):
+    """Confronto ore forti / altre ore sommando le uscite concluse -> dict: n (uscite che contano), e con almeno
+    B5_DIARY_MIN_TRIPS uscite anche ore e catture delle due parti, catture all'ora e il giudizio ("aiuta", "tutte",
+    "uguale", "no", "zero")."""
+    splits = [s for s in map(_b5_trip_split, trips) if s]
+    out = {"n": len(splits)}
+    if len(splits) < B5_DIARY_MIN_TRIPS:
+        return out
+    hs, cs, hw, cw = (sum(x) for x in zip(*splits))
+    rs, rw = (cs / hs if hs else 0.0), (cw / hw if hw else 0.0)
+    total = cs + cw
+    if not total:
+        kind = "zero"
+    elif not rw:
+        kind = "tutte"
+    elif rs / rw >= 1.5:
+        kind = "aiuta"
+    elif rs / rw <= 1 / 1.5:
+        kind = "no"
+    else:
+        kind = "uguale"
+    out.update(hs=hs, cs=cs, hw=hw, cw=cw, rs=rs, rw=rw, total=total, kind=kind)
+    return out
+
+
+def _b5_proof_hero(trips):
+    """Riga della copertina con il risultato del confronto, solo con abbastanza uscite e catture (prima è rumore)."""
+    p = _b5_proof_stats(trips)
+    if p.get("kind") in (None, "zero") or p["total"] < B5_DIARY_FEW_CATCHES:
+        return ""
+    text = {"aiuta": "La previsione ti aiuta: nelle ore forti prendi %s volte di più." % _b5_it(p["rs"] / p["rw"], 1)
+            if p["rw"] else "",
+            "tutte": "La previsione ti aiuta: tutte le catture sono arrivate nelle ore forti.",
+            "uguale": "Per ora la previsione non fa differenza tra le ore.",
+            "no": "Per ora con te la previsione non funziona: prendi di più nelle altre ore."}[p["kind"]]
+    tone = {"aiuta": "b5h-ok", "tutte": "b5h-ok", "uguale": "", "no": "b5h-ko"}[p["kind"]]
+    icon = _B5_SVG % (24, 18, 18, '<path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/>')
+    return ('<div class="b5h-proof %s">%s<span>%s <small>Su %s e %s.</small></span></div>'
+            % (tone, icon, _b5_html.escape(text), _b5_count(p["n"], "uscita", "uscite"),
+               _b5_count(p["total"], "cattura", "catture")))
+
+
+# ---- la tua stagione (immagine da condividere) ----------------------------------------------------------------------
+def _b5_season_payload(trips, year):
+    """Dati dell'immagine "La mia stagione": totali, record, lago ed esca migliori, catture per mese."""
+    done = [t for t in trips if t["fine"] and t["data"][:4] == year]
+    pairs = [(t, c) for t in done for c in t["catture"]]
+    minutes = sum(_b5_min(t["fine"]) - _b5_min(t["inizio"]) for t in done)
+    rec = _b5_record(done)
+    rec_txt = rec_sub = ""
+    if rec:
+        t, c, rec_txt = rec
+        rec_sub = "%s · %s" % (t["luogo"]["name"], _b5_day_label(t["data"], full=True, year=int(year)))
+    per_lake = {}
+    for t in done:
+        m = per_lake.setdefault(t["luogo"]["name"], [0, 0])
+        m[0] += len(t["catture"])
+        m[1] += _b5_min(t["fine"]) - _b5_min(t["inizio"])
+    lakes = [(n, v[0] / (v[1] / 60.0)) for n, v in per_lake.items() if v[1] >= 120]
+    best_lake = max(lakes, key=lambda x: x[1]) if lakes else None
+    lures = {}
+    for _, c in pairs:
+        name = _b5_lure_name(c["esca"])
+        if name:
+            lures[name] = lures.get(name, 0) + 1
+    best_lure = max(lures.items(), key=lambda kv: kv[1]) if lures else None
+    months = [0] * 12
+    for t, _ in pairs:
+        months[int(t["data"][5:7]) - 1] += 1
+    logo = ""
+    path = _b5_logo_path(B5_LOGO_FILES[0])
+    if path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                logo = fh.read()
+        except OSError:
+            logo = ""
+    return {"kind": "stagione", "year": year, "bass": len(pairs), "trips": len(done),
+            "hours": "%d" % round(minutes / 60.0),
+            "rec": rec_txt, "rec_sub": rec_sub,
+            "lake": ("%s · %s bass all'ora" % (best_lake[0], _b5_it(best_lake[1], 2))) if best_lake else "",
+            "lure": ("%s · %s" % (best_lure[0], _b5_count(best_lure[1], "cattura", "catture"))) if best_lure else "",
+            "months": months, "mon": list(_B5_MON), "logo": logo, "file": "bassometro-stagione-%s.png" % year,
+            "label": "Condividi la tua stagione %s" % year,
+            "icon": _B5_SVG % (24, 18, 18, '<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 '
+                                            '0 0 2-2v-7"/>')}
+
+
 # ---- cassetti -------------------------------------------------------------------------------------------------------
 def _b5_stats_html(cells):
     return '<div class="b5m-stats b5d-stats">%s</div>' % "".join(
@@ -10701,7 +13016,7 @@ def _b5_stats_html(cells):
 
 
 def _b5_trip_conditions(trip, now):
-    """Riquadri delle condizioni nelle ore in acqua (dalla previsione salvata)."""
+    """Riquadri delle condizioni nelle ore di pesca (dalla previsione salvata)."""
     prev = trip["prev"]
     ore = prev["ore"]
     start = _b5_min(trip["inizio"])
@@ -10760,27 +13075,22 @@ def _b5_trip_viewer(tid, now):
         html = '<div class="b5d-sub">%s · %s</div>%s' % (esc(trip["luogo"]["name"]), esc(_b5_trip_times(trip, now)),
                                                          big)
         if prev:
-            html += ('<div class="b5d-chart">%s</div><div class="b5d-legend"><i class="b5d-key"></i>Attività '
-                     'prevista, in acqua <i class="b5d-key b5d-off"></i>fuori <i class="b5d-dot"></i>cattura</div>'
-                     % _b5_trip_strip(trip, now, big=True))
-            caught = [prev["ore"]["att"][_b5_min(c["ora"]) // 60] for c in trip["catture"]]
-            caught = [v for v in caught if v is not None]
-            start = _b5_min(trip["inizio"])
-            fished = [(prev["ore"]["att"][h], m) for h, m in _b5_trip_hours(start, max(_b5_trip_end(trip, now),
-                                                                                          start + 1))
-                      if prev["ore"]["att"][h] is not None]
-            if caught and fished:
-                mean = sum(v * m for v, m in fished) / float(sum(m for _, m in fished))
-                html += ('<div class="b5d-sub">Catture con Attività media <b>%d</b>, contro %d delle ore in '
-                         'acqua.</div>' % (round(sum(caught) / len(caught)), round(mean)))
+            html += ('<div class="b5d-chart">%s</div><div class="b5d-legend"><i class="b5d-key"></i>ore di pesca '
+                     '<i class="b5d-key b5d-off"></i>prima e dopo <i class="b5d-dot"></i>cattura · altezza: Attività '
+                     'prevista</div>' % _b5_trip_strip(trip, now, big=True))
         st.markdown('<div class="b5d">%s</div>' % html, unsafe_allow_html=True)
         if trip["catture"]:
-            lines = []
+            rows = []
             for c in trip["catture"]:
                 bits = [b for b in ("%s kg" % _b5_it(c["kg"], 2) if c["kg"] else "",
-                                    "%s cm" % _b5_it(c["cm"], 0) if c["cm"] else "", c["esca"], c["nota"]) if b]
-                lines.append("- **%s**%s" % (c["ora"], " · " + _b5_mdx(" · ".join(bits)) if bits else ""))
-            st.markdown("\n".join(lines))
+                                    "%s cm" % _b5_it(c["cm"], 0) if c["cm"] else "", _b5_lure_name(c["esca"]),
+                                    c["nota"]) if b]
+                cond = _b5_catch_cond(trip, c)
+                rows.append('<div class="b5d-catch"><b>%s</b><div><span>%s</span>%s</div></div>'
+                            % (c["ora"], esc(" · ".join(bits)) or '<i>senza peso né esca</i>',
+                               '<small>%s</small>' % esc(cond) if cond else ""))
+            st.markdown('<div class="b5d b5d-catches">%s</div>' % "".join(rows), unsafe_allow_html=True)
+            _b5_spot_map(_b5_spot_points([trip]), "b5_map_" + trip["id"], 220)
         if prev:
             st.markdown(_b5_trip_conditions(trip, now), unsafe_allow_html=True)
         if trip["nota"]:
@@ -10798,7 +13108,9 @@ def _b5_trip_viewer(tid, now):
                 "stimata" if imp.get("torbidita") in (None, "Non specificato") else _b5_mdx(imp["torbidita"].lower()),
                 " · sonda %s °C" % _b5_it(imp["sonda"]) if imp.get("sonda") is not None else ""))
         else:
-            st.caption("Previsione non disponibile: si calcola solo per gli ultimi %d giorni." % -B5_OFFSET_MIN)
+            st.caption("Nessuna previsione per questa uscita: si calcola solo fino a %d giorni prima." % -B5_OFFSET_MIN)
+        if trip["fine"]:
+            _b5_share(trip, now)
         with st.container(horizontal=True, gap="small"):
             if st.button(":material/edit: Modifica", key="b5_dv_edit", width="stretch", on_click=_b5_cb_dlg,
                          args=("edit", tid)):
@@ -10832,96 +13144,121 @@ def _b5_hhmm_of(iso_utc, loc):
         return "--:--"
 
 
-def _b5_time_of(hhmm):
-    h, m = divmod(_b5_min(hhmm), 60)
-    return _b5_dt.time(h, m)
+def _b5_trip_from_form(draft, got, lakes, now, new):
+    """Valori della scheda (trigger "salva") -> (uscita da salvare, None) oppure (None, messaggio). Ricontrolla qui
+    quello che il browser ha già controllato: date e orari, una sola uscita in corso, nessuno spot nuovo in mare. Il
+    lago è uno di quelli del diario (pick "lago") o uno trovato con "+ Altro lago" (pick "nuovo", dall'elenco salvato
+    in b5_draft_places)."""
+    try:
+        day = _b5_dt.date.fromisoformat(str(got.get("data")))
+    except ValueError:
+        return None, "Giorno non valido."
+    start, end = str(got.get("inizio") or ""), got.get("fine")
+    end = None if end in (None, "") else str(end)
+    today = now.date()
+    if not _B5_RE_HHMM.match(start) or (end is not None and not _B5_RE_HHMM.match(end)):
+        return None, "Orario non valido."
+    if day > today or (today - day).days > B5_DIARY_MAX_DAYS:
+        return None, "Puoi segnare uscite fino a un anno fa."
+    if end is None and (new or day != today):
+        return None, "Manca l'ora di fine."
+    if end is not None and end <= start:
+        return None, "La fine deve venire dopo l'inizio."
+    if end is None and any(t["fine"] is None and t["id"] != draft["id"] for t in _b5_diary_trips()):
+        return None, "C'è già un'uscita in corso: chiudila prima di lasciarne aperta un'altra."
+    pick = got.get("lake") if isinstance(got.get("lake"), dict) else {}
+    k = int(_b5_f(pick.get("i"), 0))
+    places = st.session_state.get("b5_draft_places") or []
+    if pick.get("kind") == "nuovo" and 0 <= k < len(places):
+        luogo = _b5_trip_place(_b5_with_tz(places[k]))
+    elif 0 <= k < len(lakes):
+        luogo = lakes[k]
+    else:
+        luogo = draft["luogo"]
+    water = _b5_f(got.get("acqua"), None)
+    trip = {key: v for key, v in draft.items() if not key.startswith("_")}
+    trip.update(luogo=luogo, data=day.isoformat(), inizio=start, fine=end,
+                acqua=water if water is not None and 0 <= water <= 38 else None,
+                nota=str(got.get("nota") or "").strip()[:1000],
+                catture=sorted((c for c in map(_b5_catch_clean, got.get("catture") or []) if c),
+                               key=lambda c: c["ora"]))
+    before = {c["id"]: c.get("spot") for c in draft["catture"]}
+    for c in trip["catture"]:                       # solo gli spot nuovi o spostati: quelli già salvati non si rifanno
+        if c["spot"] and c["spot"] != before.get(c["id"]) and _b5_at_sea(c["spot"]["lat"], c["spot"]["lon"]):
+            return None, "Lo spot della cattura delle %s è in mare: spostalo sul lago o toglilo." % c["ora"]
+    return trip, None
+
+
+def _b5_lake_card(loc):
+    """Lago per la scheda: nome, regione (e paese se non è l'Italia) e coordinate per centrare la mappa degli spot."""
+    sub = " · ".join(p for p in (str(loc.get("admin") or ""), str(loc.get("country") or ""))
+                     if p and p != "Italia")
+    return {"name": str(loc.get("name") or "Lago"), "sub": sub, "lat": _b5_f(loc.get("lat"), 43.13),
+            "lon": _b5_f(loc.get("lon"), 12.10)}
 
 
 def _b5_trip_editor(now_of):
+    """
+    Cassetto "Uscita passata" / "Modifica l'uscita": tutta la scheda è il componente _b5_scheda (modo "uscita").
+    Arrivano "cerca" (ricerca di un lago nuovo con + Altro lago: risultati in b5_draft_places, che si accumulano, e in
+    b5_draft_found quelli dell'ultima ricerca) e "salva". Previsione calcolata (con il meteo del giorno) per un'uscita
+    nuova, o se cambiano il giorno o il lago.
+    """
     ss = st.session_state
     draft = ss.get("b5_draft")
     if not isinstance(draft, dict):
         return
     new = _b5_trip_get(draft["id"]) is None
 
-    @st.dialog("Uscita già fatta" if new else "Modifica l'uscita", position=B5_DRAWER_POSITION,
+    @st.dialog("Uscita passata" if new else "Modifica l'uscita", position=B5_DRAWER_POSITION,
                icon=":material/edit_note:", on_dismiss="ignore")
     def drawer():
-        k = "b5e%d_" % int(ss.get("b5_draft_n", 0))
-        loc = draft["luogo"]
-        now = now_of(loc)
+        n = int(ss.get("b5_draft_n", 0))
+        trips = _b5_diary_trips()
+        lakes = _b5_diary_lakes(trips, ss["b5_loc"] if new else draft["luogo"])
+        now = now_of(lakes[0])
         today = now.date()
-        st.caption(":material/location_on: %s%s" % (_b5_mdx(loc["name"]), " · per un altro lago cambialo prima nella "
-                                                    "pagina del Diario" if new else ""))
-        day = st.date_input("Giorno", value=_b5_dt.date.fromisoformat(draft["data"]),
-                            min_value=today - _b5_dt.timedelta(days=B5_DIARY_MAX_DAYS), max_value=today,
-                            format="DD/MM/YYYY", key=k + "data")
-        with st.container(horizontal=True, gap="small"):
-            t0 = st.time_input("Inizio", value=_b5_time_of(draft["inizio"]), step=300, key=k + "inizio")
-            t1 = st.time_input("Fine", value=_b5_time_of(draft["fine"]) if draft["fine"] else None, step=300,
-                               key=k + "fine", help=None)
-        if draft["fine"] is None and not new:
-            st.caption("Lascia vuota la fine se sei ancora in acqua.")
-        st.markdown("**Catture**" if draft["catture"] else "**Catture** · nessuna (cappotto)")
-        for i, c in enumerate(draft["catture"]):
-            ck = "%sc%s_" % (k, c["id"])
-            with st.container(border=True, gap="xsmall"):
-                with st.container(horizontal=True, vertical_alignment="center"):
-                    st.markdown(":small[**Cattura %d**]" % (i + 1), width="stretch")
-                    st.button(":material/close:", key=ck + "del", type="tertiary", on_click=_b5_cb_draft_del,
-                              args=(c["id"],), help="Togli questa cattura")
-                with st.container(horizontal=True, gap="small"):
-                    st.time_input("Ora", value=_b5_time_of(c["ora"]), step=300, key=ck + "ora")
-                    st.number_input("Peso (kg)", min_value=0.0, max_value=15.0, value=c["kg"], step=0.1,
-                                    format="%.2f", placeholder="–", key=ck + "kg")
-                with st.container(horizontal=True, gap="small"):
-                    st.number_input("Lunghezza (cm)", min_value=0.0, max_value=100.0, value=c["cm"], step=1.0,
-                                    format="%.0f", placeholder="–", key=ck + "cm")
-                    st.text_input("Esca", value=c["esca"], max_chars=60, placeholder="es. spinnerbait", key=ck + "esca")
-        last = draft["catture"][-1]["ora"] if draft["catture"] else draft["inizio"]
-        if draft["fine"] is None and now.date().isoformat() == draft["data"]:
-            last = now.strftime("%H:%M")
-        st.button(":material/add: Aggiungi una cattura", key=k + "add", width="stretch", on_click=_b5_cb_draft_add,
-                  args=(last,))
-        water = st.number_input("Acqua misurata (°C)", min_value=0.0, max_value=38.0, value=draft["acqua"], step=0.1,
-                                format="%.1f", placeholder="Non misurata", key=k + "acqua")
-        note = st.text_area("Note", value=draft["nota"], max_chars=1000, height=90, key=k + "nota",
-                            placeholder="Spot, esche, cosa ha funzionato…")
-        if not st.button(":material/check: Salva", key=k + "save", type="primary", width="stretch"):
+        recent, lures = _b5_lure_lists(trips)
+        found = ss.get("b5_draft_found") or {}
+        places = ss.get("b5_draft_places") or []
+        got, ok = _b5_scheda("b5_scheda_u%d" % n, {
+            "mode": "uscita", "key": "u%d" % n, "recent": recent, "lures": lures, "map": _b5_map_cfg(lakes[0]),
+            "trip": dict({k: draft[k] for k in ("data", "inizio", "fine", "acqua", "nota")},
+                         catture=_b5_scheda_catches(draft["catture"])),
+            "today": today.isoformat(), "now": now.strftime("%H:%M"),
+            "min": (today - _b5_dt.timedelta(days=B5_DIARY_MAX_DAYS)).isoformat(),
+            "open_end": (not new) and draft["fine"] is None,
+            "lakes": [_b5_lake_card(l) for l in lakes], "places": [_b5_lake_card(p) for p in places],
+            "found": found.get("idx", []), "found_msg": found.get("msg", ""), "search_n": found.get("n", 0),
+            "err": ss.get("b5_draft_err") or ""}, ("salva", "cerca"))
+        if not ok:
+            st.error("Per modificare le uscite serve Streamlit 1.66 o più recente.", icon=":material/error:")
             return
-        start = t0.strftime("%H:%M") if t0 else None
-        end = t1.strftime("%H:%M") if t1 else None
-        errors = []
-        if start is None:
-            errors.append("Manca l'ora di inizio.")
-        if end is None and (new or day != today):
-            errors.append("Manca l'ora di fine.")
-        if start and end and end <= start:
-            errors.append("La fine deve venire dopo l'inizio (le uscite oltre la mezzanotte non sono previste).")
-        if start and day == today and start > now.strftime("%H:%M"):
-            errors.append("L'inizio è più tardi di adesso.")
-        if end is None and any(t["fine"] is None and t["id"] != draft["id"] for t in _b5_diary_trips()):
-            errors.append("C'è già un'uscita in corso.")
-        catches = []
-        for i, c in enumerate(draft["catture"]):
-            ck = "%sc%s_" % (k, c["id"])
-            ora = ss.get(ck + "ora")
-            hhmm = ora.strftime("%H:%M") if ora else None
-            if hhmm is None:
-                errors.append("Manca l'ora della cattura %d." % (i + 1))
-            elif start and (hhmm < start or (end and hhmm > end)):
-                errors.append("La cattura %d (%s) è fuori dall'orario dell'uscita." % (i + 1, hhmm))
-            catches.append(_b5_catch_clean({"id": c["id"], "ora": hhmm or "00:00", "kg": ss.get(ck + "kg"),
-                                            "cm": ss.get(ck + "cm"), "esca": ss.get(ck + "esca"), "nota": c["nota"]}))
-        if errors:
-            for e in errors:
-                st.error(e, icon=":material/error:")
+        query = got.get("cerca")
+        if isinstance(query, dict) and str(query.get("q") or "").strip():
+            res, msg = _b5_search_location(str(query["q"]), (lakes[0]["lat"], lakes[0]["lon"]))
+            idx = []
+            for item in res[:6]:
+                j = next((i for i, p in enumerate(places) if p["name"] == item["name"]
+                          and abs(p["lat"] - item["lat"]) < 1e-3 and abs(p["lon"] - item["lon"]) < 1e-3), None)
+                if j is None:
+                    places.append(item)
+                    j = len(places) - 1
+                idx.append(j)
+            ss["b5_draft_places"] = places
+            ss["b5_draft_found"] = {"idx": idx, "msg": msg, "n": int(found.get("n", 0)) + 1}
+            st.rerun(scope="fragment")
+        saved = got.get("salva")
+        if not isinstance(saved, dict):
             return
-        trip = {key: v for key, v in draft.items() if not key.startswith("_")}
-        trip.update(data=day.isoformat(), inizio=start, fine=end, acqua=water, nota=(note or "").strip(),
-                    catture=sorted(catches, key=lambda c: c["ora"]))
-        if trip["prev"] is None or trip["data"] != draft.get("_data0"):
-            ctl = _b5_trip_ctl(trip)
+        trip, err = _b5_trip_from_form(draft, saved, lakes, now, new)
+        if err:
+            ss["b5_draft_err"] = err
+            st.rerun(scope="fragment")
+        ss.pop("b5_draft_err", None)
+        moved = (trip["luogo"]["lat"], trip["luogo"]["lon"]) != (draft["luogo"]["lat"], draft["luogo"]["lon"])
+        if trip["prev"] is None or trip["data"] != draft.get("_data0") or moved:
+            ctl = _b5_trip_ctl(dict(trip, prev=None) if moved else trip)
             prev = None
             if ctl is not None:
                 with st.spinner("Calcolo meteo e previsione di quel giorno…"):
@@ -10936,12 +13273,36 @@ def _b5_trip_editor(now_of):
 
 
 # ---- pagina ---------------------------------------------------------------------------------------------------------
+def _b5_diary_forecast_pending(dialog_open):
+    """
+    Previsione di un'uscita appena iniziata (o chiusa senza): si calcola alla fine del giro, a pagina già disegnata,
+    così "Inizia adesso" fa partire l'uscita subito anche con poca rete (prima: rotellina finché non arrivava il meteo)
+    e la scheda dell'uscita intanto dice "Calcolo la previsione di adesso…". Con un cassetto aperto si rimanda.
+    """
+    ss = st.session_state
+    pend = ss.get("b5_dprev")
+    if not pend or dialog_open:
+        return
+    tid, before = pend if isinstance(pend, (tuple, list)) else (pend, False)
+    trip = _b5_trip_get(tid)
+    if not trip or trip["prev"] is not None:
+        ss.pop("b5_dprev", None)
+        return
+    ctl = _b5_trip_ctl(trip)
+    prev = _b5_trip_forecast(ctl, before) if ctl is not None else None
+    ss.pop("b5_dprev", None)
+    if prev:
+        _b5_diary_put(dict(trip, prev=prev))
+    st.rerun()
+
+
 def _b5_page_diario():
-    """Sezione Diario: intestazione con i totali, uscita in corso, confronto con la previsione, uscite, copia."""
+    """Sezione Diario: copertina con la stagione, uscita in corso, Uscite / I tuoi numeri, account, copia."""
     ss = st.session_state
     diary = ss.get("b5_diary")
     user = _b5_user()
     if not isinstance(diary, dict):                 # il browser non ha ancora mandato il diario, o il database non va
+        _b5_scene_css("b5_card_diary", _b5_scene_now(ss["b5_loc"], _b5_astro_now(ss["b5_loc"])))
         with st.container(border=True, gap="xsmall", key="b5_card_diary"):
             st.markdown('<div class="b5d-title">Diario</div>', unsafe_allow_html=True)
             if user and ss.get("b5_cloud_err"):
@@ -10958,7 +13319,7 @@ def _b5_page_diario():
         st.toast(toast[0], icon=toast[1])
     if user and (ss.get("b5_cloud_todo") or ss.get("b5_cloud_err")):
         n = len(ss.get("b5_cloud_todo") or {})
-        st.warning("Non riesco a salvare nel tuo account%s: le modifiche restano qui finché non si riesce." % (
+        st.warning("Non riesco a salvare nel tuo account%s: le modifiche restano qui finché non ci riesco." % (
             " (%s)" % _b5_count(n, "modifica in attesa", "modifiche in attesa") if n else ""),
             icon=":material/cloud_off:")
         st.button(":material/refresh: Riprova adesso", key="b5_cloud_flush", on_click=_b5_cloud_flush)
@@ -10970,30 +13331,28 @@ def _b5_page_diario():
                    "le uscite restano solo finché la pagina è aperta. Scarica una copia prima di chiuderla.",
                    icon=":material/warning:")
 
-    if ss.pop("b5_dstart", False) and not any(t["fine"] is None for t in diary["uscite"]):
+    # Inizia adesso: l'uscita parte subito, la previsione si calcola in fondo al giro (_b5_diary_forecast_pending)
+    start = ss.pop("b5_dstart", False) and not any(t["fine"] is None for t in diary["uscite"])
+    if start and _b5_at_sea(ss["b5_loc"].get("lat"), ss["b5_loc"].get("lon")):
+        st.toast("La località scelta è in mare: cambiala prima di iniziare.", icon=":material/waves:")
+        start = False
+    if start:
         loc = _b5_trip_place(ss["b5_loc"])
         now = _b5_now_at(loc)
-        with st.spinner("Salvo meteo e previsione di adesso…"):
-            prev = _b5_trip_forecast(_b5_ctl(0), True)
-        _b5_diary_put({"id": _b5_new_id(), "luogo": loc, "data": now.date().isoformat(),
-                       "inizio": now.strftime("%H:%M"), "fine": None, "catture": [], "acqua": None, "nota": "",
-                       "prev": prev, "creata": _b5_utc_iso(), "mod": ""})
-        ss["b5_toast"] = (("Uscita iniziata alle %s. Buona pesca!" % now.strftime("%H:%M")) if prev else
-                          "Uscita iniziata. Previsione non disponibile adesso: la calcolo a fine uscita.",
-                          ":material/play_arrow:")
+        tid = _b5_new_id()
+        _b5_diary_put({"id": tid, "luogo": loc, "data": now.date().isoformat(), "inizio": now.strftime("%H:%M"),
+                       "fine": None, "catture": [], "acqua": None, "nota": "", "prev": None, "creata": _b5_utc_iso(),
+                       "mod": ""})
+        ss["b5_dprev"] = (tid, True)
+        ss["b5_toast"] = ("Uscita iniziata alle %s. Buona pesca!" % now.strftime("%H:%M"), ":material/play_arrow:")
         st.rerun()
-    tid = ss.pop("b5_dprev", None)
-    trip = _b5_trip_get(tid) if tid else None
-    if trip and trip["prev"] is None:
-        ctl = _b5_trip_ctl(trip)
-        if ctl is not None:
-            with st.spinner("Calcolo la previsione dell'uscita…"):
-                prev = _b5_trip_forecast(ctl, False)
-            if prev:
-                _b5_diary_put(dict(trip, prev=prev))
-                st.rerun()
 
     trips = diary["uscite"]
+    reached = {m[2] for m in _b5_milestones(trips)[0]}
+    if isinstance(ss.get("b5_ms_seen"), set):
+        for name in sorted(reached - ss["b5_ms_seen"]):
+            st.toast("Traguardo raggiunto: %s" % name, icon=":material/emoji_events:")
+    ss["b5_ms_seen"] = reached
     now_cache = {}
 
     def now_of(loc):
@@ -11008,20 +13367,22 @@ def _b5_page_diario():
         _b5_diary_live(live, now_of(live["luogo"]))
     if user:
         _b5_account_import(user)
-    elif _b5_cloud_ready():
-        _b5_account_offer()
     if not trips:
         _b5_diary_intro(bool(user))
     else:
-        _b5_diary_proof(trips)
-        here = now_of(ss["b5_loc"])
-        _b5_diary_list(trips, here)
+        view, shown = _b5_diary_view(trips)
+        if view == "Numeri":
+            _b5_share_season(trips)
+            _b5_diary_numbers(shown)
+            _b5_diary_proof(shown)
+        else:
+            _b5_diary_list(shown, now_of(ss["b5_loc"]))
+    if not user and trips and _b5_cloud_ready():
+        _b5_account_offer(len(trips))
     _b5_diary_backup(diary, user)
-    st.caption("Indici del modello relativi (0-100) · " + ("Diario salvato nel tuo account" if user else
-                                                            "Il diario resta su questo telefono"),
-               text_alignment="center")
 
     dlg = ss.pop("b5_dlg", None)
+    _b5_diary_forecast_pending(bool(dlg) or ss.get("b5_drawer") is not None)
     if dlg and dlg[0] == "view":
         t = _b5_trip_get(dlg[1])
         if t:
@@ -11029,6 +13390,652 @@ def _b5_page_diario():
     elif dlg and dlg[0] in ("edit", "new"):
         _b5_trip_editor(now_of)
     _b5_open_drawer()
+
+
+# ------------------------------------------------------------------------------
+# ASPETTO: FONDO BLU NOTTE, RIQUADRI PIENI E SCENA DEL LAGO IN CIMA A OGNI SEZIONE
+# ------------------------------------------------------------------------------
+# Tavolozza "lago" (03/11/2026). Il nero puro con i riquadri a bordo grigio sembrava un modulo da tecnici e
+# nascondeva il vetro della pillola in basso (dietro c'era solo nero). Ora: pagina blu notte, riquadri pieni appena più
+# chiari con angoli morbidi, controlli come quelli dei telefoni (segmented control pieno, scheda scelta più chiara),
+# titoli e numeri grandi in Outfit (il carattere della scritta del logo). Gli stessi valori stanno nel tema
+# (.streamlit/config.toml) e nella tavolozza del Blocco 4 (B4_UI), che li passa anche al grafico orario.
+# In cima a Pesca, Meteo e Diario la stessa scena del lago a tutta larghezza (_b5_scene_svg): cielo dell'ora del luogo
+# (alba, giorno, tramonto, notte) con il sole o la luna dove sono davvero, nuvole e pioggia del meteo, colline,
+# acqua e canneti; nella Pesca i cerchi sull'acqua crescono con l'attività prevista. È un SVG disegnato qui (niente
+# immagini da scaricare) messo come sfondo del riquadro in cima, che sale sotto la barra con il logo.
+B5_BG = "#08121A"                   # pagina (contrasti ricalcolati in testa al Blocco 4)
+B5_SURF = "rgba(255,255,255,.05)"   # riquadri
+B5_SURF_2 = "rgba(255,255,255,.09)"  # pulsanti e campi
+B5_LINE = "rgba(255,255,255,.08)"   # bordi appena accennati
+B5_ELEV = "#0F1D26"                 # cassetti e riquadri sopra la pagina
+B5_RADIUS = 18
+B5_FONT_DISPLAY = '"Outfit","Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'
+B5_FONT_IMPORT = ('@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700'
+                  '&display=swap");')
+
+# Cielo nei momenti tipici del giorno (colori in alto, a metà, all'orizzonte; colline lontane e vicine; acqua;
+# nuvole; stelle 0-1; disco e alone del sole con la sua intensità). Fra un momento e l'altro i colori si mescolano.
+_B5_SKY = {
+    "notte": {"top": "#040914", "mid": "#0A1530", "hor": "#16294A", "far": "#0D1931", "near": "#060E1A",
+              "water": "#0A1528", "cloud": "#26324D", "stars": 1.0, "sun": "#FFE2A8", "glow": "#FFB060", "glow_a": 0.0},
+    "aurora": {"top": "#0C1433", "mid": "#2E3168", "hor": "#8C5E86", "far": "#2A2B55", "near": "#141633",
+               "water": "#1A1D3D", "cloud": "#5A5284", "stars": 0.45, "sun": "#FFD3A0", "glow": "#FF9A6A",
+               "glow_a": 0.35},
+    "alba": {"top": "#1A2B5C", "mid": "#56609A", "hor": "#F2A47E", "far": "#4A4B7A", "near": "#222448",
+             "water": "#2A3058", "cloud": "#E8A893", "stars": 0.0, "sun": "#FFE3B0", "glow": "#FFB27A", "glow_a": 0.55},
+    "giorno": {"top": "#0E3A66", "mid": "#2A6CA2", "hor": "#8EC3E2", "far": "#3B6E8F", "near": "#1C3D54",
+               "water": "#15405F", "cloud": "#E1E9F1", "stars": 0.0, "sun": "#FFF6D8", "glow": "#FFF2C0",
+               "glow_a": 0.35},
+    "oro": {"top": "#1B2F62", "mid": "#625A8C", "hor": "#F4A85C", "far": "#4C4468", "near": "#272640",
+            "water": "#2F3657", "cloud": "#F3C392", "stars": 0.0, "sun": "#FFD27A", "glow": "#FF9E4A", "glow_a": 0.6},
+    "sera": {"top": "#111A44", "mid": "#46337A", "hor": "#D46A7C", "far": "#30274F", "near": "#181633",
+             "water": "#1F1D40", "cloud": "#A86A8E", "stars": 0.3, "sun": "#FF9F70", "glow": "#FF7A6A", "glow_a": 0.4},
+}
+# Codici WMO del meteo -> (nuvole %, precipitazione): pioggia, neve, nebbia o temporale nella scena del Meteo.
+_B5_SCENE_WX = {0: (0, ""), 1: (20, ""), 2: (50, ""), 3: (92, ""), 45: (85, "nebbia"), 48: (85, "nebbia")}
+for _c in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+    _B5_SCENE_WX[_c] = (95, "pioggia")
+for _c in (71, 73, 75, 77, 85, 86):
+    _B5_SCENE_WX[_c] = (95, "neve")
+for _c in (95, 96, 99):
+    _B5_SCENE_WX[_c] = (100, "temporale")
+
+
+def _b5_rgb(hexcol):
+    h = hexcol.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _b5_mix(a, b, t):
+    """Colore a mescolato con b (t = 0 -> a, 1 -> b), in esadecimale."""
+    ra, rb = _b5_rgb(a), _b5_rgb(b)
+    return "#%02x%02x%02x" % tuple(int(round(x + (y - x) * t)) for x, y in zip(ra, rb))
+
+
+def _b5_grey(col, t):
+    """Colore spento verso il grigio della stessa luminosità (cielo coperto)."""
+    r, g, b = _b5_rgb(col)
+    v = int(round(0.3 * r + 0.59 * g + 0.11 * b))
+    return _b5_mix(col, "#%02x%02x%02x" % (v, v, v), t)
+
+
+def _b5_sky_at(h, sr, ss):
+    """Colori del cielo all'ora locale h (decimale) con alba sr e tramonto ss: mescola i due momenti vicini."""
+    if sr is None or ss is None or not (0 <= sr < ss <= 24):
+        return dict(_B5_SKY["giorno"] if sr is None or ss is None or ss > sr else _B5_SKY["notte"])
+    keys = [(sr - 1.6, "notte"), (sr - 0.5, "aurora"), (sr + 0.3, "alba"), (sr + 1.6, "giorno"),
+            (max(sr + 1.7, ss - 2.2), "giorno"), (ss - 0.7, "oro"), (ss + 0.2, "sera"), (ss + 1.3, "notte")]
+    if h <= keys[0][0] or h >= keys[-1][0]:
+        return dict(_B5_SKY["notte"])
+    for (h0, k0), (h1, k1) in zip(keys, keys[1:]):
+        if h0 <= h <= h1:
+            t = 0.0 if h1 <= h0 else (h - h0) / (h1 - h0)
+            a, b = _B5_SKY[k0], _B5_SKY[k1]
+            return {k: (_b5_mix(a[k], b[k], t) if isinstance(a[k], str) else a[k] + (b[k] - a[k]) * t) for k in a}
+    return dict(_B5_SKY["giorno"])
+
+
+def _b5_scene_svg(h, sr, ss, clouds=30.0, precip="", moon=50.0, rings=0, seed="lago"):
+    """
+    Scena del lago (SVG 390 x 420, si adatta tagliando il cielo in alto) all'ora locale h con alba sr e tramonto ss:
+    cielo, stelle, sole o luna (fase moon in %), nuvole (clouds %), pioggia / neve / nebbia / temporale (precip),
+    colline, acqua con il riflesso, canneti e `rings` cerchi sull'acqua (0-3, l'attività prevista). La disposizione di
+    stelle, nuvole e canne dipende da `seed` (il nome del luogo): resta uguale da un giro all'altro. L'altezza del
+    sole segue la parte di giorno trascorsa; la luna ha la fase vera ma l'altezza è solo indicativa (la notte che passa).
+    """
+    import random as _rnd
+
+    def layer(name):                                # un generatore per strato: le stelle non spostano le nuvole
+        return _rnd.Random("%s|%s" % (seed, name))
+    c = max(0.0, min(1.0, _b5_f(clouds, 30.0) / 100.0))
+    sky = _b5_sky_at(h, sr, ss)
+    over = 0.78 * c ** 1.6                          # cielo coperto: colori spenti e un po' più scuri
+    for k in ("top", "mid", "hor", "far", "near", "water", "cloud"):
+        sky[k] = _b5_mix(_b5_grey(sky[k], over), "#000000", 0.12 * c)
+    day = sr is not None and ss is not None and sr <= h <= ss
+    W, HOR, Hh = 390, 288, 420
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMax slice">' % (W, Hh)]
+    out.append(
+        "<style>.tw{animation:tw 5s ease-in-out infinite}.sh{animation:sh 6s ease-in-out infinite}"
+        ".rp{transform-box:fill-box;transform-origin:center;animation:rp 3.6s ease-out infinite;opacity:0}"
+        ".dr{animation:dr 70s ease-in-out infinite alternate}.fa{animation:fa 1.1s linear infinite}"
+        ".sn{animation:sn 7s linear infinite}.fl{animation:fl 9s linear infinite;opacity:0}"
+        "@keyframes tw{0%,100%{opacity:.25}50%{opacity:1}}@keyframes sh{0%,100%{opacity:.25}50%{opacity:1}}"
+        "@keyframes rp{0%{transform:scale(.15);opacity:.75}100%{transform:scale(1.7);opacity:0}}"
+        "@keyframes dr{from{transform:translateX(-16px)}to{transform:translateX(16px)}}"
+        "@keyframes fa{from{transform:translate(0,-60px)}to{transform:translate(-12px,60px)}}"
+        "@keyframes sn{from{transform:translate(0,-80px)}to{transform:translate(-10px,80px)}}"
+        "@keyframes fl{0%,93%,100%{opacity:0}94%,96%{opacity:.5}}"
+        "@media (prefers-reduced-motion:reduce){*{animation:none!important}.rp{opacity:.3}}</style>")
+    out.append(
+        '<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/>'
+        '<stop offset=".58" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+        '<linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/>'
+        '<stop offset=".55" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+        '<radialGradient id="g"><stop offset="0" stop-color="%s" stop-opacity=".9"/>'
+        '<stop offset=".35" stop-color="%s" stop-opacity=".35"/><stop offset="1" stop-color="%s" stop-opacity="0"/>'
+        '</radialGradient><radialGradient id="c"><stop offset="0" stop-color="%s" stop-opacity=".95"/>'
+        '<stop offset=".6" stop-color="%s" stop-opacity=".55"/><stop offset="1" stop-color="%s" stop-opacity="0"/>'
+        '</radialGradient><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s" '
+        'stop-opacity=".55"/><stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>'
+        '<linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s" stop-opacity="0"/>'
+        '<stop offset="1" stop-color="%s"/></linearGradient></defs>'
+        % (sky["top"], sky["mid"], sky["hor"], _b5_mix(sky["water"], sky["hor"], 0.28), sky["water"], B5_BG,
+           sky["glow"], sky["glow"], sky["glow"], sky["cloud"], sky["cloud"], sky["cloud"], B5_BG, B5_BG, B5_BG,
+           B5_BG))
+    out.append('<rect width="%d" height="%d" fill="url(#s)"/>' % (W, HOR + 2))
+    # stelle
+    stars = sky["stars"] * (1.0 - c)
+    if stars > 0.05:
+        rnd = layer("stelle")
+        for i in range(34):
+            x, y, r = rnd.uniform(4, W - 4), rnd.uniform(6, HOR - 70), rnd.choice((0.6, 0.7, 0.8, 1.0, 1.2))
+            cls = ' class="tw" style="animation-delay:-%.1fs"' % rnd.uniform(0, 5) if i % 4 == 0 else ""
+            out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="#fff" opacity="%.2f"%s/>'
+                       % (x, y, r, stars * rnd.uniform(0.35, 0.95), cls))
+    # sole di giorno, luna di notte: sul bordo destro, lontano dal nome del luogo e dalle etichette
+    if day:
+        f = (h - sr) / max(0.5, ss - sr)
+        sx, sy = 300 + f * 72, HOR - 8 - _b5_math.sin(_b5_math.pi * f) * 74
+        glow = sky["glow_a"] * (1.0 - 0.75 * c)
+        out.append('<circle cx="%.1f" cy="%.1f" r="86" fill="url(#g)" opacity="%.2f"/>' % (sx, sy, glow))
+        if c < 0.85:
+            out.append('<circle cx="%.1f" cy="%.1f" r="12" fill="%s" opacity="%.2f"/>'
+                       % (sx, sy, sky["sun"], 1.0 - 0.8 * c))
+        refl = (sx, sky["sun"], glow * 1.4)
+    else:
+        if sr is not None and ss is not None:
+            night = (24.0 - ss) + sr
+            f = ((h - ss) % 24.0) / max(1.0, night)
+        else:
+            f = 0.5
+        mx, my = 300 + f * 72, HOR - 16 - _b5_math.sin(_b5_math.pi * max(0.0, min(1.0, f))) * 82
+        lit = max(0.0, min(100.0, _b5_f(moon, 50.0))) / 100.0
+        a = 0.9 * (1.0 - 0.7 * c)
+        out.append('<circle cx="%.1f" cy="%.1f" r="40" fill="url(#g)" opacity="%.2f"/>' % (mx, my, 0.25 * lit * a))
+        if lit < 0.97:                              # falce: il disco in ombra è ritagliato, dietro si vede il cielo
+            out.append('<mask id="m"><circle cx="%.1f" cy="%.1f" r="10" fill="#fff"/><circle cx="%.1f" '
+                       'cy="%.1f" r="10.4" fill="#000"/></mask>' % (mx, my, mx - 21.0 * lit + 0.2, my - 1.0))
+        out.append('<circle cx="%.1f" cy="%.1f" r="10" fill="#F4F0E2" opacity="%.2f"%s/>'
+                   % (mx, my, a, ' mask="url(#m)"' if lit < 0.97 else ""))
+        refl = (mx, "#F4F0E2", 0.5 * lit * a)
+    # nuvole: macchie morbide (gradiente radiale, niente filtri: la scena resta leggera da animare)
+    n = 2 + int(round(c * 5))
+    rnd = layer("nuvole")
+    for i in range(7):
+        x, y, s = rnd.uniform(-30, W + 10), rnd.uniform(48, HOR - 52), rnd.uniform(0.8, 1.5)
+        dur = rnd.uniform(55, 95)
+        if i >= n:
+            continue
+        op = 0.18 + 0.6 * c
+        blobs = "".join('<ellipse cx="%.1f" cy="%.1f" rx="%.1f" ry="%.1f" fill="url(#c)"/>'
+                        % (x + dx * s, y + dy * s, rx * s, ry * s)
+                        for dx, dy, rx, ry in ((0, 0, 58, 16), (26, -9, 34, 15), (-24, -5, 30, 12), (46, 3, 30, 10)))
+        out.append('<g class="dr" opacity="%.2f" style="animation-duration:%.0fs">%s</g>' % (op, dur, blobs))
+    # colline: lontane lungo tutto l'orizzonte, vicine ai due lati (il lago in mezzo)
+    pts, rnd = [], layer("colline")
+    for i in range(14):
+        x = -10 + i * 31
+        pts.append((x, HOR - 18 - 12 * _b5_math.sin(i * 0.9 + rnd.uniform(0, 1.5)) - rnd.uniform(0, 10)))
+    path = "M-10 %d L%s L400 %d Z" % (HOR + 1, " L".join("%.0f %.1f" % p for p in pts), HOR + 1)
+    out.append('<path d="%s" fill="%s"/>' % (path, sky["far"]))
+    out.append('<path d="M-10 %d C30 %d 80 %d 150 %d L160 %d Z" fill="%s"/>'
+               % (HOR + 1, HOR - 48, HOR - 34, HOR - 4, HOR + 1, sky["near"]))
+    out.append('<path d="M240 %d C290 %d 330 %d 400 %d L400 %d Z" fill="%s"/>'
+               % (HOR + 1, HOR - 10, HOR - 42, HOR - 30, HOR + 1, sky["near"]))
+    # acqua, linea dell'orizzonte e riflesso del sole o della luna
+    out.append('<rect y="%d" width="%d" height="%d" fill="url(#w)"/>' % (HOR, W, Hh - HOR))
+    out.append('<rect y="%d" width="%d" height="1.2" fill="%s" opacity=".55"/>' % (HOR, W, sky["hor"]))
+    rx_, rcol, ra = refl
+    if ra > 0.03:                                   # riflesso: colonna di luce morbida e qualche bagliore
+        out.append('<ellipse cx="%.1f" cy="%d" rx="20" ry="58" fill="url(#g)" opacity="%.2f"/>'
+                   % (rx_, HOR + 44, min(0.8, ra)))
+        for i, (dy, w) in enumerate(((7, 22), (16, 15), (27, 18), (41, 10), (56, 13))):
+            out.append('<ellipse class="sh" style="animation-delay:-%.1fs" cx="%.1f" cy="%d" rx="%d" ry=".9" '
+                       'fill="%s" opacity="%.2f"/>' % (i * 1.3, rx_ + (i % 2) * 3 - 1.5, HOR + dy, w / 2, rcol,
+                                                      min(0.75, ra) * (1 - i / 7)))
+    rnd = layer("acqua")
+    for i in range(6):                              # luccichii sull'acqua: lunghi, sottili e tenui
+        x, y, w = rnd.uniform(40, W - 50), rnd.uniform(HOR + 12, HOR + 72), rnd.uniform(36, 80)
+        out.append('<ellipse class="sh" style="animation-delay:-%.1fs;animation-duration:%.1fs" cx="%.1f" cy="%.1f" '
+                   'rx="%.1f" ry=".5" fill="#fff" opacity="%.2f"/>'
+                   % (rnd.uniform(0, 6), rnd.uniform(5, 9), x, y, w / 2, rnd.uniform(0.03, 0.06)))
+    # cerchi sull'acqua: l'attività prevista (0-3), sul lato destro (a sinistra c'è il picco del giorno)
+    spots = [(262, HOR + 30), (322, HOR + 50), (206, HOR + 58)]
+    for i in range(max(0, min(3, int(rings)))):
+        x, y = spots[i]
+        for k in range(2):
+            out.append('<ellipse class="rp" style="animation-delay:%.1fs" cx="%d" cy="%d" rx="22" ry="5" fill="none" '
+                       'stroke="#fff" stroke-opacity=".7" stroke-width="1.1"/>' % (i * 1.1 + k * 1.8, x, y))
+    # pioggia, neve, nebbia, temporale
+    rnd = layer("meteo")
+    if precip in ("pioggia", "temporale"):
+        lines = "".join('<path d="M%.0f %.0f l-4 12" />' % (rnd.uniform(0, W + 20), rnd.uniform(-20, Hh))
+                        for _ in range(70))
+        out.append('<g class="fa" stroke="#C3D2E2" stroke-opacity=".35" stroke-width="1">%s</g>' % lines)
+    if precip == "temporale":
+        out.append('<rect class="fl" width="%d" height="%d" fill="#E8EEFF"/>' % (W, HOR))
+    if precip == "neve":
+        flakes = "".join('<circle cx="%.0f" cy="%.0f" r="%.1f"/>' % (rnd.uniform(0, W + 20), rnd.uniform(-40, Hh),
+                                                                      rnd.uniform(0.8, 1.8)) for _ in range(60))
+        out.append('<g class="sn" fill="#fff" fill-opacity=".7">%s</g>' % flakes)
+    if precip == "nebbia":
+        for i in range(3):
+            out.append('<ellipse cx="%d" cy="%d" rx="260" ry="22" fill="url(#c)" opacity=".5"/>'
+                       % (60 + i * 140, HOR - 8 + i * 6))
+    # canneti in primo piano, ai due lati
+    reeds, rnd = [], layer("canne")
+    for side, x0, x1 in (("s", 2, 70), ("d", 336, 392)):
+        for _ in range(7 if side == "s" else 5):
+            x = rnd.uniform(x0, x1)
+            top = rnd.uniform(HOR + 24, HOR + 70)
+            bend = rnd.uniform(-9, 9)
+            reeds.append('<path d="M%.1f %d Q%.1f %.1f %.1f %.1f" stroke-width="%.1f"/>'
+                         % (x, Hh, x + bend * 0.3, (Hh + top) / 2, x + bend, top, rnd.uniform(1.4, 2.4)))
+            if rnd.random() < 0.55:
+                reeds.append('<rect x="%.1f" y="%.1f" width="4" height="15" rx="2" stroke="none" fill="#03070B"/>'
+                             % (x + bend - 2, top - 2))
+    out.append('<g stroke="#03070B" fill="none" stroke-linecap="round" opacity=".92">%s</g>' % "".join(reeds))
+    # velo in alto (il logo e il nome si leggono su ogni cielo) e sfumatura verso la pagina in basso
+    out.append('<rect width="%d" height="200" fill="url(#t)"/>' % W)
+    out.append('<rect y="%d" width="%d" height="%d" fill="url(#b)"/>' % (Hh - 110, W, 110))
+    out.append("</svg>")
+    return "".join(out)
+
+
+def _b5_scene_css(key, svg):
+    """Scena del contenitore con la chiave `key`, nella variabile --b5-scene che usa il suo ::before (B5_THEME_CSS:
+    lo strato che svanisce nella pagina). st.html con il solo <style>: non occupa spazio."""
+    import base64 as _b64
+    data = _b64.b64encode(svg.encode("utf-8")).decode("ascii")
+    st.html('<style>.st-key-%s{--b5-scene:url("data:image/svg+xml;base64,%s")}</style>' % (key, data))
+
+
+def _b5_eyebrow(icon, text):
+    """Scritta piccola in cima alla scena con il nome della sezione: Pesca e Meteo hanno lo stesso luogo e la stessa
+    scena, e senza questa (e senza le due disposizioni diverse) sembrava di non aver cambiato pagina."""
+    return '<div class="b5-eyebrow">%s<span>%s</span></div>' % (_b5_nav_icon(icon), _b5_html.escape(text))
+
+
+def _b5_local_hour(loc, day=None, hour=None):
+    """Ora locale decimale del luogo (adesso), oppure `hour` se data (un altro giorno: l'ora del picco)."""
+    if hour is not None:
+        return float(hour)
+    zi = _b5_zone(loc.get("tz"))
+    now = _b5_dt.datetime.now(zi) if zi is not None else _b5_dt.datetime.now()
+    return now.hour + now.minute / 60.0
+
+
+def _b5_scene_now(loc, astro, code=None):
+    """Scena del luogo adesso: cielo dell'ora, luna, e (con il codice WMO del meteo) nuvole e precipitazioni. Senza
+    codice (Diario) quello letto da Pesca o Meteo nell'ultima ora, se c'è (_b5_wx_recent): nessun download in più."""
+    a = astro or {}
+    if code is None:
+        code = _b5_wx_recent(loc)
+    clouds, precip = _B5_SCENE_WX.get(int(_b5_f(code, -1)), (30, "")) if code is not None else (25, "")
+    return _b5_scene_svg(_b5_local_hour(loc), _b5_f(a.get("sunrise_dec"), None), _b5_f(a.get("sunset_dec"), None),
+                         clouds, precip, _b5_f(a.get("moon_illum"), 50.0), 0, loc.get("name") or "lago")
+
+
+def _b5_wx_key(loc):
+    return (round(_b5_f(loc.get("lat"), 0.0), 4), round(_b5_f(loc.get("lon"), 0.0), 4), str(loc.get("tz") or ""))
+
+
+def _b5_wx_remember(loc, code):
+    """Tempo di adesso appena letto dal Meteo: lo riusa la scena del Diario (senza scaricare niente)."""
+    if code is not None:
+        st.session_state["b5_wx_last"] = (_b5_wx_key(loc), int(_b5_f(code, 3)), _b5_time.time())
+
+
+def _b5_wx_recent(loc):
+    """Codice del tempo di adesso letto da meno di un'ora per questo luogo, oppure None."""
+    last = st.session_state.get("b5_wx_last")
+    if isinstance(last, tuple) and last[0] == _b5_wx_key(loc) and _b5_time.time() - last[2] < 3600:
+        return last[1]
+    return None
+
+
+def _b5_wx_code_at(loc, day, hour):
+    """
+    Codice del tempo (WMO) del luogo al giorno `day` e all'ora `hour` dai dati del Meteo (stessa richiesta e stessa
+    cache della sezione Meteo, B5_METEO_TTL_S), così la scena della Pesca mostra anche pioggia, neve e nebbia. None se
+    quell'ora non c'è (giorni passati oltre ieri) o se il Meteo non risponde.
+    """
+    try:
+        data = _b5_meteo_fetch(*_b5_wx_key(loc))
+    except Exception:
+        return None
+    _b5_wx_remember(loc, (data.get("current") or {}).get("weather_code"))
+    hr = data.get("hourly") or {}
+    try:
+        i = list(hr.get("time") or []).index("%sT%02d:00" % (day.isoformat(), int(hour) % 24))
+        return hr["weather_code"][i]
+    except (ValueError, IndexError, KeyError, TypeError):
+        return None
+
+
+def _b5_astro_now(loc):
+    """Sole e luna di oggi nel luogo (per la scena del Diario), oppure None."""
+    try:
+        today = _b5_today(loc.get("tz"), loc.get("lon"))
+        return _b5_compute_astro(today, _b5_f(loc.get("lat"), 43.13), _b5_f(loc.get("lon"), 12.10),
+                                 str(loc.get("tz") or ""))
+    except Exception:
+        return None
+
+
+_B5_LOGO_DATA = {}
+
+
+def _b5_logo_data():
+    """Logo della barra in alto come data URI (letto una volta sola); "" se il file manca."""
+    if "v" not in _B5_LOGO_DATA:
+        import base64 as _b64
+        path = next((p for p in map(_b5_logo_path, B5_LOGO_FILES) if p), None)
+        try:
+            with open(path, "rb") as fh:
+                _B5_LOGO_DATA["v"] = "data:image/svg+xml;base64," + _b64.b64encode(fh.read()).decode("ascii")
+        except (OSError, TypeError):
+            _B5_LOGO_DATA["v"] = ""
+    return _B5_LOGO_DATA["v"]
+
+
+def _b5_rings(value):
+    """Cerchi sull'acqua per un indice di attività: nessuno sotto 15, poi uno, due, tre (soglie di B5_INDEX_WORDS)."""
+    v = _b5_f(value, 0.0)
+    return 0 if v < 15 else (1 if v < 30 else (2 if v < 50 else 3))
+
+
+def _b5_day_headline(res):
+    """Riassunto del giorno (Blocco 4, lo stesso del grafico) per l'obiettivo scelto: (serie, chiave) o (None, None)."""
+    make = globals().get("create_day_headline")
+    if not make or not res or res.get("error"):
+        return None, None
+    key = "tro" if res.get("goal") == "Trophy" else "att"
+    try:
+        head = make(res["sim"], res.get("astro") or {}, res.get("goal") or "Entrambi")
+    except Exception:
+        return None, None
+    return (head or {}).get(key), key
+
+
+def _b5_best_short(sub):
+    """"Il momento migliore: 07:00–08:00 · 12:00–16:00" -> "Ore migliori 7–8 · 12–16" (sta su una riga); gli altri
+    testi del grafico (giornata difficile, andamento piatto) restano come sono."""
+    text = str(sub or "")
+    if not text.startswith("Il momento migliore: "):
+        return text
+    when = _b5_re.sub(r"\b0?(\d{1,2}):00\b", r"\1", text[len("Il momento migliore: "):])
+    return ("Ore migliori " if ("·" in when or "–" in when) else "Ora migliore ") + when
+
+
+def _b5_verdict_html(line, key):
+    """Anello con il picco del giorno, "Attività bassa" e le ore migliori (in basso nella scena della Pesca)."""
+    esc = _b5_html.escape
+    value = max(0.0, min(100.0, _b5_f(line.get("value"), 0.0)))
+    color = globals().get("B4_COL_TROPHY", "#9C72DE") if key == "tro" else globals().get("B4_COL_BAI", "#0fa874")
+    name = "Trophy" if key == "tro" else "Attività"
+    word = _b5_index_word(value)
+    circ = 2 * _b5_math.pi * 24
+    return ('<div class="b5v"><div class="b5v-ring"><svg viewBox="0 0 56 56" width="56" height="56" aria-hidden="true">'
+            '<circle cx="28" cy="28" r="24" fill="rgba(8,18,26,.45)" stroke="rgba(255,255,255,.16)" stroke-width="5"/>'
+            '<circle cx="28" cy="28" r="24" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round" '
+            'stroke-dasharray="%.1f %.1f" transform="rotate(-90 28 28)"/></svg><b>%s</b></div>'
+            '<div class="b5v-txt"><span class="b5v-k">%s %s</span><span class="b5v-s">%s</span></div></div>'
+            % (color, circ * value / 100.0, circ, esc(str(line.get("num") or "")), esc(name), esc(word),
+               esc(_b5_best_short(line.get("sub")))))
+
+
+def _b5_now_html(view):
+    """Il tempo di adesso grande e al centro nella scena del Meteo: simbolo e temperatura, cielo, percepita, minima e
+    massima (il riquadro "Adesso" sotto tiene vento, pressione e pioggia)."""
+    esc = _b5_html.escape
+    cur = view.get("now") or {}
+    code = int(_b5_f(cur.get("weather_code"), 3))
+    today = view["days"][0] if view.get("days") and view["days"][0]["off"] == 0 else {}
+    bits = []
+    if cur.get("apparent_temperature") is not None:
+        bits.append("Percepita %d°" % round(_b5_f(cur["apparent_temperature"])))
+    if today:
+        bits.append("min %d° max %d°" % (round(_b5_f(today.get("tmin"))), round(_b5_f(today.get("tmax")))))
+    return ('<div class="b5x"><div class="b5x-row">%s<span class="b5x-t">%d°</span></div><div class="b5x-k">%s</div>'
+            '<div class="b5x-s">%s</div></div>'
+            % (_b5_wx_icon(code, bool(_b5_f(cur.get("is_day"), 1)), 88), round(_b5_f(cur.get("temperature_2m"))),
+               esc(_B5_WMO.get(code, ("—", ""))[0]), esc(" · ".join(bits))))
+
+
+def _b5_render_header(ctl, day, astro, meteo=False, res=None, now=None):
+    """
+    In cima alla pagina, sopra la scena del lago. Pesca e Meteo hanno lo stesso luogo ma due intestazioni diverse, così
+    cambiando sezione si vede subito che la pagina è un'altra (prima erano uguali tranne l'ultima riga):
+      * Pesca: "Previsione di pesca", il nome del luogo grande a sinistra (cassetto Località), regione, giorno, sole e
+        luna, il pulsante Condizioni e in basso il picco del giorno con le ore migliori;
+      * Meteo: "Meteo", il nome più piccolo e al centro, e al centro la temperatura di adesso grande con il cielo
+        (`now`: i dati del Meteo, _b5_meteo_view). Giorno, sole e luna stanno nella Pesca.
+    Scena: nella Pesca il cielo di adesso (Oggi) o dell'ora del picco (altri giorni) con le nuvole della previsione e i
+    cerchi dell'attività; nel Meteo il cielo di adesso con il tempo che fa.
+    """
+    loc = ctl["loc"]
+    a = astro or {}
+    sr, ss = _b5_f(a.get("sunrise_dec"), None), _b5_f(a.get("sunset_dec"), None)
+    line, key = _b5_day_headline(res) if res is not None else (None, None)
+    if meteo:
+        code = ((now or {}).get("now") or {}).get("weather_code")
+        _b5_wx_remember(loc, code)
+        svg = _b5_scene_now(loc, astro, code)
+    else:
+        today = day == ctl["today"]
+        hour = None if today or not line or not line.get("hour") else int(str(line["hour"])[:2])
+        h = _b5_local_hour(loc, hour=hour)
+        clouds, act = 30.0, (line or {}).get("value")
+        for r in ((res or {}).get("series") or []):
+            if isinstance(r, dict) and int(_b5_f(r.get("hour"), -1)) == int(h) % 24:
+                clouds = _b5_f(r.get("clouds"), clouds)
+                break
+        if today and res and res.get("ana"):        # oggi: i cerchi dicono l'attività di quest'ora
+            row = next((r for r in res["ana"]["timeline"] if int(_b5_f(r.get("hour"), -1)) == int(h)), None)
+            if row is not None:
+                act = row.get("trophy_rate" if key == "tro" else "catch_rate")
+        # pioggia, neve, nebbia, temporale dell'ora della scena dai dati del Meteo; solo con la previsione riuscita
+        # (Open-Meteo risponde: niente attese in più quando non va)
+        precip = ""
+        if res and not res.get("error"):
+            wx = _b5_wx_code_at(loc, day, h)
+            if wx is not None:
+                wc, precip = _B5_SCENE_WX.get(int(_b5_f(wx, 3)), (clouds, ""))
+                if precip:
+                    clouds = max(clouds, wc)
+        svg = _b5_scene_svg(h, sr, ss, clouds, precip, _b5_f(a.get("moon_illum"), 50.0),
+                            _b5_rings(act) if act is not None else 0, loc.get("name") or "lago")
+    card = "b5_card_meteo" if meteo else "b5_card_header"
+    _b5_scene_css(card, svg)
+    sub = " · ".join(p for p in (str(loc.get("admin") or ""), str(loc.get("country") or "")) if p)
+    # il nome è il pulsante del cassetto Località: la freccina accanto dice che si può toccare. Sta nel testo,
+    # attaccata all'ultima parola (spazio unificatore): con icon= restava sul bordo destro, lontana dal nome quando
+    # questo va a capo
+    name = "%s :material/expand_more:" % _b5_mdx(loc.get("name") or "Località")
+    if meteo:
+        with st.container(border=True, gap="xsmall", key=card):
+            st.markdown(_b5_eyebrow("meteo", "Meteo"), unsafe_allow_html=True)
+            st.button(name, key="b5_open_loc", type="tertiary", on_click=_b5_cb_open, args=("loc",))
+            if sub:
+                st.caption(_b5_mdx(sub))
+            if now:
+                st.markdown(_b5_now_html(now), unsafe_allow_html=True)
+        return
+    with st.container(border=True, gap="xsmall", key=card):
+        with st.container(horizontal=True, vertical_alignment="top", gap="small"):
+            with st.container(gap="xsmall"):
+                st.markdown(_b5_eyebrow("pesca", "Previsione di pesca"), unsafe_allow_html=True)
+                st.button(name, key="b5_open_loc", type="tertiary", on_click=_b5_cb_open, args=("loc",))
+                if sub:
+                    st.caption(_b5_mdx(sub))
+            with st.container(width="content", key="b5_actions"):
+                st.button(":material/tune:", key="b5_open_cond", on_click=_b5_cb_open, args=("cond",))
+        chips = [_b5_chip(_b5_icon("data"), "%s · %s" % (_b5_rel_label((day - ctl["today"]).days),
+                                                           _b5_fmt_date(day)))]
+        if astro:
+            status = astro.get("sun_status", "normale")
+            if status == "sempre_su":
+                chips.append(_b5_chip(_b5_icon("sole"), "Sole di mezzanotte"))
+            elif status == "sempre_giu":
+                chips.append(_b5_chip(_b5_icon("notte"), "Notte polare"))
+            else:
+                chips.append(_b5_sun_chip(astro))
+            illum = _b5_f(astro.get("moon_illum"), 0.0)
+            phase = str(astro.get("moon_phase") or "")
+            chips.append(_b5_chip(_b5_moon_icon(illum, astro.get("moon_elong"), astro.get("lat")),
+                                  "%d %%" % int(round(illum)) + (" · " + phase.lower() if phase and phase != "n/d" else ""),
+                                  "Luna"))
+        # HTML nel Markdown: st.html toglierebbe gli SVG
+        st.markdown('<div class="b5-chips">%s</div>' % "".join(chips), unsafe_allow_html=True)
+        if line:
+            st.markdown(_b5_verdict_html(line, key), unsafe_allow_html=True)
+    st.caption(_b5_settings_summary(ctl))           # le scelte dei cassetti, sotto la scena
+
+
+B5_THEME_CSS = r"""
+.stApp{background:#08121A}
+@media (max-width:640px){[data-testid="stMainBlockContainer"]{padding-top:56px}}
+/* barra in alto e pillola: quelle dell'app al posto della fascia di Streamlit */
+.b5-bar [data-testid="stHeader"]{display:none}
+/* riquadri: pieni, angoli morbidi, bordo appena accennato */
+[class*="st-key-b5_card"],[class*="st-key-b5_tile_"],[class*="st-key-b5_dcard_"],.st-key-b5_dlive,
+[data-testid="stExpander"] details,[data-testid="stMetric"]{background:rgba(255,255,255,.05) !important;
+  border:1px solid rgba(255,255,255,.07) !important;border-radius:18px !important}
+.st-key-b5_dlive{background:linear-gradient(160deg,rgba(15,168,116,.16),rgba(15,168,116,.04) 60%) !important;
+  border-color:rgba(15,168,116,.45) !important}
+[data-testid="stExpander"] summary{border-radius:18px}
+/* Scena in cima: nessun riquadro. È uno strato sotto il contenuto (::before, immagine in --b5-scene) che svanisce
+   nel fondo della pagina con una maschera; sul telefono va da bordo a bordo e sale sotto la barra con il logo, sul
+   computer sta nella colonna e svanisce anche ai lati. Prima: angoli arrotondati e ombra, e si vedeva lo stacco. */
+.st-key-b5_card_header,.st-key-b5_card_meteo,.st-key-b5_card_diary{position:relative;isolation:isolate;
+  min-height:318px;border:0 !important;border-radius:0 !important;background:transparent !important;
+  box-shadow:none !important;padding:20px 20px 18px !important}
+.st-key-b5_card_diary{min-height:270px}
+.st-key-b5_card_header::before,.st-key-b5_card_meteo::before,.st-key-b5_card_diary::before{content:"";
+  position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:#0E2236 var(--b5-scene,none) center bottom/cover no-repeat;
+  -webkit-mask-image:linear-gradient(180deg,#000 0,#000 50%,rgba(0,0,0,.75) 66%,rgba(0,0,0,.32) 83%,transparent 100%);
+  mask-image:linear-gradient(180deg,#000 0,#000 50%,rgba(0,0,0,.75) 66%,rgba(0,0,0,.32) 83%,transparent 100%)}
+@media (min-width:641px){
+  .st-key-b5_card_header::before,.st-key-b5_card_meteo::before,.st-key-b5_card_diary::before{
+    background-position:center 72%;           /* colonna larga: più cielo, meno acqua */
+    -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 12%,#000 50%,rgba(0,0,0,.75) 66%,
+      rgba(0,0,0,.32) 83%,transparent 100%),linear-gradient(90deg,transparent 0,#000 10%,#000 90%,transparent 100%);
+    -webkit-mask-composite:source-in;
+    mask-image:linear-gradient(180deg,transparent 0,#000 12%,#000 50%,rgba(0,0,0,.75) 66%,rgba(0,0,0,.32) 83%,
+      transparent 100%),linear-gradient(90deg,transparent 0,#000 10%,#000 90%,transparent 100%);
+    mask-composite:intersect}
+}
+@media (max-width:640px){
+  .st-key-b5_card_header,.st-key-b5_card_meteo,.st-key-b5_card_diary{margin:-56px -16px 0 !important;
+    width:calc(100% + 32px) !important;max-width:none !important;padding:66px 20px 20px !important}
+  /* con un avviso sopra (simulazione, tema mancante) la scena resta nella colonna */
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_header,
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_meteo,
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_diary{margin:0 !important;
+    width:100% !important;padding-top:20px !important}
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_header::before,
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_meteo::before,
+  [data-testid="stElementContainer"]:has([data-testid="stAlert"]) ~ * .st-key-b5_card_diary::before{
+    border-radius:26px 26px 0 0}
+}
+.st-key-b5_card_header [data-testid="stCaptionContainer"],.st-key-b5_card_header [data-testid="stCaptionContainer"] p,
+.st-key-b5_card_meteo [data-testid="stCaptionContainer"],.st-key-b5_card_meteo [data-testid="stCaptionContainer"] p,
+.st-key-b5_card_diary [data-testid="stCaptionContainer"],.st-key-b5_card_diary [data-testid="stCaptionContainer"] p{
+  color:rgba(255,255,255,.82) !important}
+/* nome della sezione in cima alla scena */
+.b5-eyebrow{display:flex;align-items:center;gap:6px;margin-bottom:-2px;color:#7FE3BC;font-size:12.5px;
+  font-weight:700;letter-spacing:.09em;line-height:1.2;text-transform:uppercase;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+.b5-eyebrow svg{flex:none;width:16px;height:16px}
+/* Meteo: tutto al centro, nome più piccolo, la temperatura di adesso grande */
+.st-key-b5_card_meteo,.st-key-b5_card_meteo [data-testid="stCaptionContainer"],
+.st-key-b5_card_meteo [data-testid="stCaptionContainer"] p{text-align:center !important}
+.st-key-b5_card_meteo .b5-eyebrow{justify-content:center}
+.st-key-b5_card_meteo .st-key-b5_open_loc{margin:0 auto}
+.st-key-b5_card_meteo .st-key-b5_open_loc button{justify-content:center;text-align:center;padding-top:4px}
+.st-key-b5_card_meteo .st-key-b5_open_loc button p{font-size:22px !important}
+.st-key-b5_card_meteo [data-testid="stElementContainer"]:has(.b5x){margin-top:auto}
+.b5x{display:flex;flex-direction:column;align-items:center;gap:2px}
+.b5x-row{display:flex;align-items:center;justify-content:center;gap:4px}
+.b5x-row svg{flex:none;filter:drop-shadow(0 2px 10px rgba(0,0,0,.35))}
+.b5x-t{font-family:"Outfit","Source Sans 3",sans-serif;font-size:78px;font-weight:600;line-height:1;color:#fff;
+  letter-spacing:-.04em;text-shadow:0 2px 20px rgba(0,0,0,.25)}
+.b5x-k{font-family:"Outfit","Source Sans 3",sans-serif;font-size:23px;font-weight:600;line-height:1.25;color:#fff}
+.b5x-s{color:rgba(255,255,255,.82);font-size:15px}
+.st-key-b5_card_header .b5-chips{margin:6px 0 4px}
+.st-key-b5_card_header .b5-chip{padding:3px 9px;border-radius:999px;background:rgba(6,14,22,.38);color:#fff;
+  border:1px solid rgba(255,255,255,.14);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);line-height:20px}
+.st-key-b5_open_loc button p{font-family:"Outfit","Source Sans 3",sans-serif;font-size:31px !important;
+  letter-spacing:-.01em;text-shadow:0 1px 14px rgba(0,0,0,.35)}
+.st-key-b5_actions button{background:rgba(6,14,22,.38) !important;border:1px solid rgba(255,255,255,.16) !important;
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+/* picco del giorno nella scena della Pesca */
+.b5v{display:flex;align-items:center;gap:12px;margin-top:10px}
+.b5v-ring{position:relative;flex:none;width:56px;height:56px}
+.b5v-ring svg{display:block}
+.b5v-ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:"Outfit","Source Sans 3",sans-serif;font-size:21px;font-weight:600;color:#fff}
+.b5v-txt{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.b5v-k{font-family:"Outfit","Source Sans 3",sans-serif;font-size:19px;font-weight:600;color:#fff}
+.b5v-s{color:rgba(255,255,255,.8);font-size:14.5px}
+.st-key-b5_card_header [data-testid="stElementContainer"]:has(.b5v){margin-top:auto}
+/* Meteo: temperatura e cielo di adesso stanno nella scena; il riquadro "Adesso" tiene vento, pressione, pioggia */
+.b5m-card .b5m-now{display:none}
+.b5m-card .b5m-stats{border-top:0;padding-top:8px}
+/* titoli e numeri grandi in Outfit */
+.b5d-title,.b5h-stats b,.b5m-now-t,.b5d-big,.b5n-big,.b5n-mid{font-family:"Outfit","Source Sans 3",sans-serif}
+.b5d-title{font-size:30px;letter-spacing:-.01em}
+.b5h-stats b{font-weight:600}
+/* controlli segmentati (giorno, obiettivo, unità...): fondo pieno, scelta più chiara */
+[data-testid="stButtonGroup"] [role="radiogroup"]:has(button[data-variant^="segm"]){gap:2px;padding:3px;
+  border-radius:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07)}
+[data-testid="stButtonGroup"] button[data-variant^="segm"]{min-height:34px;margin:0 !important;border:0 !important;
+  border-radius:10px !important;background:transparent !important;color:rgba(242,242,247,.72) !important;
+  font-weight:600;transition:background-color .2s,color .2s}
+[data-testid="stButtonGroup"] button[data-variant^="segm"][aria-checked="true"]{background:rgba(255,255,255,.14) !important;
+  color:#fff !important;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+[data-testid="stButtonGroup"] button[data-variant^="segm"] *{color:inherit !important}
+/* pillole (cassetti): piene, la scelta in verde */
+[data-testid="stButtonGroup"] button[data-variant="pills"]{border-color:transparent !important;
+  background:rgba(255,255,255,.07) !important}
+[data-testid="stButtonGroup"] button[data-variant="pills"][aria-checked="true"]{background:rgba(15,168,116,.2) !important;
+  border-color:rgba(15,168,116,.6) !important}
+/* schede (Grafici, Strategia, Ore) */
+[data-baseweb="tab-border"]{background-color:rgba(255,255,255,.07) !important}
+[data-baseweb="tab-highlight"]{height:3px !important;border-radius:3px}
+[data-testid="stTab"][aria-selected="true"] p{color:#fff}
+/* pulsanti */
+[data-testid="stBaseButton-secondary"]{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.06)}
+@media (hover:hover){[data-testid="stBaseButton-secondary"]:hover{background:rgba(255,255,255,.11)}}
+[data-testid="stBaseButton-primary"]{background:linear-gradient(180deg,#13b67f,#0d9a6a);border:0;
+  box-shadow:0 8px 22px rgba(15,168,116,.28)}
+/* avvisi: fondo tenue del loro colore, testo chiaro */
+[data-testid="stAlertContainer"]{border-radius:16px}
+[data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"]{color:#E9EEF3}
+/* cassetti e riquadri a comparsa sopra la pagina */
+div[role="dialog"]{background:#0F1D26 !important}
+[data-baseweb="input"],[data-baseweb="textarea"],[data-baseweb="select"]>div{border-radius:12px !important}
+/* Meteo e Diario: riquadri fatti in HTML */
+.b5m-card{border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.05);border-radius:18px}
+.b5m-alert{border-radius:14px}
+.b5h-proof{background:rgba(6,14,22,.38);border:1px solid rgba(255,255,255,.12);border-radius:12px;
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.st-key-b5_card_diary .b5h-season{color:#7FE3BC}
+.b5d-tag{background:#141E25}         /* etichetta "Esempio": il fondo del riquadro (era il nero della pagina) */
+/* Strategia: icona del riquadro in un cerchietto colorato */
+[class*="st-key-b5_tile_"] [data-testid="stCaptionContainer"] span[role="img"]{display:inline-flex !important;
+  align-items:center;justify-content:center;width:26px;height:26px;margin-right:4px;border-radius:50%;
+  background:rgba(15,168,116,.16);color:#3FD39C;font-size:16px !important;vertical-align:middle !important}
+.st-key-b5_tile_dove [data-testid="stCaptionContainer"] span[role="img"]{background:rgba(43,159,224,.16);color:#5CB8EC}
+.st-key-b5_tile_esche [data-testid="stCaptionContainer"] span[role="img"]{background:rgba(227,176,75,.16);color:#E3B04B}
+.st-key-b5_tile_recupero [data-testid="stCaptionContainer"] span[role="img"]{background:rgba(156,114,222,.18);color:#B596EA}
+.st-key-b5_tile_colori [data-testid="stCaptionContainer"] span[role="img"]{background:rgba(242,112,107,.16);color:#F2908B}
+.st-key-b5_tile_setup [data-testid="stCaptionContainer"] span[role="img"]{background:rgba(255,255,255,.1);color:#DDE3E8}
+[class*="st-key-b5_tile_"] [data-testid="stCaptionContainer"] p{letter-spacing:.05em}
+"""
 
 
 # ------------------------------------------------------------------------------
@@ -11115,6 +14122,16 @@ def main():
     header = st.container()           # riempita dopo il calcolo: mostra la data effettiva della serie
     ctl = _b5_controls()
     goal = st.session_state["b5_goal"]
+    if _b5_at_sea(ctl["lat"], ctl["lon"]):          # ultima difesa: in mare i Blocchi 1-4 non partono
+        try:
+            astro = _b5_compute_astro(ctl["target_date"], ctl["lat"], ctl["lon"], ctl["tz"])
+        except Exception:
+            astro = None
+        with header:
+            _b5_render_header(ctl, ctl["target_date"], astro)
+        _b5_open_drawer()
+        _b5_render_sea()
+        return
 
     with st.spinner("Scarico i dati meteo e calcolo la simulazione…"):
         res = _b5_run(ctl, goal)
@@ -11125,7 +14142,7 @@ def main():
         except Exception:
             astro = None
     with header:
-        _b5_render_header(ctl, res["date"], astro)
+        _b5_render_header(ctl, res["date"], astro, res=res)
     _b5_open_drawer()                 # anche con errore meteo: la località si deve poter cambiare
 
     if res["error"]:
